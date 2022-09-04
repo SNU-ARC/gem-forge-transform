@@ -19,6 +19,7 @@
 #include <omp.h>
 #include "immintrin.h"
 
+#define WARM_CACHE
 #define CACHE_BLOCK_SIZE 64
 
 static uint32_t *A;
@@ -37,10 +38,10 @@ void  *create_test_file(uint64_t nr_elements) {
     B = (uint32_t*) aligned_alloc(CACHE_BLOCK_SIZE, nr_elements * sizeof(uint32_t));
     C = (uint32_t*) aligned_alloc(CACHE_BLOCK_SIZE, nr_elements * sizeof(uint32_t));
     
-    for (uint64_t i = 0; i < nr_elements; i++) {
-        A[i] = (int) (rand());
-        B[i] = (int) (rand());
-    }
+//    for (uint64_t i = 0; i < nr_elements; i++) {
+//        A[i] = (int) (rand());
+//        B[i] = (int) (rand());
+//    }
 
 }
 
@@ -48,8 +49,10 @@ void  *create_test_file(uint64_t nr_elements) {
 * @brief compute output in the host
 */
 static void vector_addition_host(uint64_t nr_elements, int t) {
+    omp_set_dynamic(0);
     omp_set_num_threads(t);
-    #pragma omp parallel for
+    omp_set_schedule(omp_sched_static, 0);
+    #pragma omp parallel for schedule(static)
     for (uint64_t i = 0; i < nr_elements; i += 16) {
       __m512 valA = _mm512_loadu_epi32(A + i);
       __m512 valB = _mm512_loadu_epi32(B + i);
@@ -89,7 +92,7 @@ struct Params input_params(int argc, char **argv) {
     p.input_size    = 16777216;
     p.n_warmup      = 1;
     p.n_reps        = 3;
-    p.n_threads     = 5;
+    p.n_threads     = 1;
 
     int opt;
     while((opt = getopt(argc, argv, "hi:w:e:t:")) >= 0) {
@@ -118,9 +121,16 @@ struct Params input_params(int argc, char **argv) {
 */
 int main(int argc, char **argv) {
 
-    struct Params p = input_params(argc, argv);
+//    struct Params p = input_params(argc, argv);
+//
+//    const uint64_t file_size = p.input_size;
 
-    const uint64_t file_size = p.input_size;
+    int numThreads = 1;
+    if (argc == 2) {
+      numThreads = atoi(argv[1]);
+    }
+    const uint64_t file_size = 268435456;
+//    const uint64_t file_size = 16777216;
 
 #ifdef GEM_FORGE
   m5_detail_sim_start();
@@ -129,11 +139,25 @@ int main(int argc, char **argv) {
     // Create an input file with arbitrary data.
     create_test_file(file_size);
 
+#ifdef WARM_CACHE
+    // This should warm up the cache.
+    for (uint64_t i = 0; i < file_size; i += CACHE_BLOCK_SIZE / sizeof(uint32_t)) {
+      volatile uint32_t x = A[i];
+    }
+    for (uint64_t i = 0; i < file_size; i += CACHE_BLOCK_SIZE / sizeof(uint32_t)) {
+      volatile uint32_t x = B[i];
+    }
+    for (uint64_t i = 0; i < file_size; i += CACHE_BLOCK_SIZE / sizeof(uint32_t)) {
+      volatile uint32_t y = C[i];
+    }
+#endif
+
 #ifdef GEM_FORGE
   m5_reset_stats(0, 0);
 #endif
 
-    vector_addition_host(file_size, p.n_threads);
+//    vector_addition_host(file_size, p.n_threads);
+    vector_addition_host(file_size, numThreads);
 	
 #ifdef GEM_FORGE
   m5_detail_sim_end();
