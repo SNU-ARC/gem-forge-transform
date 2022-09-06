@@ -19,13 +19,15 @@
 #include <omp.h>
 #include "immintrin.h"
 
+typedef uint32_t Value;
+
 #define WARM_CACHE
 #define CACHE_BLOCK_SIZE 64
 
-static uint32_t *A;
-static uint32_t *B;
-static uint32_t *C;
-static uint32_t *C2; 
+static Value *A;
+static Value *B;
+static Value *C;
+static Value *C2; 
 
 /**
 * @brief creates a "test file" by filling a buffer of 64MB with pseudo-random values
@@ -34,9 +36,9 @@ static uint32_t *C2;
 */
 void  *create_test_file(uint64_t nr_elements) {
     srand(0);
-    A = (uint32_t*) aligned_alloc(CACHE_BLOCK_SIZE, nr_elements * sizeof(uint32_t));
-    B = (uint32_t*) aligned_alloc(CACHE_BLOCK_SIZE, nr_elements * sizeof(uint32_t));
-    C = (uint32_t*) aligned_alloc(CACHE_BLOCK_SIZE, nr_elements * sizeof(uint32_t));
+    A = (Value*) aligned_alloc(CACHE_BLOCK_SIZE, nr_elements * sizeof(Value));
+    B = (Value*) aligned_alloc(CACHE_BLOCK_SIZE, nr_elements * sizeof(Value));
+    C = (Value*) aligned_alloc(CACHE_BLOCK_SIZE, nr_elements * sizeof(Value));
     
 //    for (uint64_t i = 0; i < nr_elements; i++) {
 //        A[i] = (int) (rand());
@@ -141,14 +143,14 @@ int main(int argc, char **argv) {
 
 #ifdef WARM_CACHE
     // This should warm up the cache.
-    for (uint64_t i = 0; i < file_size; i += CACHE_BLOCK_SIZE / sizeof(uint32_t)) {
-      volatile uint32_t x = A[i];
+    for (uint64_t i = 0; i < file_size; i += CACHE_BLOCK_SIZE / sizeof(Value)) {
+      volatile Value x = A[i];
     }
-    for (uint64_t i = 0; i < file_size; i += CACHE_BLOCK_SIZE / sizeof(uint32_t)) {
-      volatile uint32_t x = B[i];
+    for (uint64_t i = 0; i < file_size; i += CACHE_BLOCK_SIZE / sizeof(Value)) {
+      volatile Value x = B[i];
     }
-    for (uint64_t i = 0; i < file_size; i += CACHE_BLOCK_SIZE / sizeof(uint32_t)) {
-      volatile uint32_t y = C[i];
+    for (uint64_t i = 0; i < file_size; i += CACHE_BLOCK_SIZE / sizeof(Value)) {
+      volatile Value y = C[i];
     }
 #endif
 
