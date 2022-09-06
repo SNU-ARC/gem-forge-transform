@@ -44,7 +44,6 @@ void  *create_test_file(uint64_t nr_elements) {
 //        A[i] = (int) (rand());
 //        B[i] = (int) (rand());
 //    }
-
 }
 
 /**
@@ -131,7 +130,8 @@ int main(int argc, char **argv) {
     if (argc == 2) {
       numThreads = atoi(argv[1]);
     }
-    const uint64_t file_size = 268435456;
+    printf("Number of Threads: %d.\n", numThreads);
+    const uint64_t file_size = 33554432; 
 //    const uint64_t file_size = 16777216;
 
 #ifdef GEM_FORGE
@@ -151,6 +151,11 @@ int main(int argc, char **argv) {
     }
     for (uint64_t i = 0; i < file_size; i += CACHE_BLOCK_SIZE / sizeof(Value)) {
       volatile Value y = C[i];
+    }
+    // Start the threads.
+#pragma omp parallel for schedule(static)
+    for (int tid = 0; tid < numThreads; ++tid) {
+      volatile Value x = A[tid];
     }
 #endif
 
