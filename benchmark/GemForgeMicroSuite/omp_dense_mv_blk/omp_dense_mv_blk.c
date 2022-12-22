@@ -14,7 +14,7 @@ typedef float Value;
 
 #define STRIDE 1
 #define CHECK
-#define WARM_CACHE
+//#define WARM_CACHE
 
 #define N 256
 #define M 65536

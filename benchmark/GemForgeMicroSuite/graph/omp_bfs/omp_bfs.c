@@ -15,8 +15,8 @@
 
 #include "immintrin.h"
 
-#include "../gfm_graph_utils.h"
-#include "../../gfm_utils.h"
+#include "gfm_graph_utils.h"
+#include "gfm_utils.h"
 
 GraphCSR graph;
 

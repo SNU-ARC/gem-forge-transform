@@ -127,11 +127,12 @@ void initializeGraph(const char *fn) {
 
 int main(int argc, char *argv[]) {
 
-  assert(argc == 3);
+  assert(argc == 2);
   int numThreads = atoi(argv[1]);
   printf("Number of Threads: %d.\n", numThreads);
 
-  char *graphFn = argv[2];
+  char *graphFn = "/home/gem-forge-framework/dataset/graph500-scale18-ef16_adj.edges";
+//  char *graphFn = argv[2];
   initializeGraph(graphFn);
 
   omp_set_dynamic(0);

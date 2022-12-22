@@ -45,25 +45,25 @@ __attribute__((noinline)) Value foo(Value *a, Value *b, Value *c, int N) {
 int main(int argc, char *argv[]) {
 
   int numThreads = 1;
-  uint64_t N = 16 * 1024 * 1024 / sizeof(Value);
+  uint64_t N = 128 * 1024 * 1024 / sizeof(Value);
   int check = 0;
   int warm = 0;
   int argx = 2;
   if (argc >= argx) {
     numThreads = atoi(argv[argx - 1]);
   }
-  argx++;
-  if (argc >= argx) {
-    N = atoll(argv[argx - 1]);
-  }
-  argx++;
-  if (argc >= argx) {
-    check = atoi(argv[argx - 1]);
-  }
-  argx++;
-  if (argc >= argx) {
-    warm = atoi(argv[argx - 1]);
-  }
+//  argx++;
+//  if (argc >= argx) {
+//    N = atoll(argv[argx - 1]);
+//  }
+//  argx++;
+//  if (argc >= argx) {
+//    check = atoi(argv[argx - 1]);
+//  }
+//  argx++;
+//  if (argc >= argx) {
+//    warm = atoi(argv[argx - 1]);
+//  }
   argx++;
   printf("Number of Threads: %d.\n", numThreads);
   printf("Data size %lukB.\n", N * sizeof(Value) / 1024);
