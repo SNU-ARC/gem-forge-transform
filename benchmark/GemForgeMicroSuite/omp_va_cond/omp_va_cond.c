@@ -16,7 +16,7 @@
 
 //#define CHECK
 
-typedef uint32_t Value;
+typedef float Value;
 
 // Turn off Cache warm-up by default, because it is not our assumption
 //#define WARM_CACHE
@@ -24,20 +24,27 @@ typedef uint32_t Value;
 //static const uint64_t file_size = 65536; 
 //static const uint64_t file_size = 33554432; 
 //static const uint64_t file_size = 16777216;
-static const uint64_t num_vector = 10000;
-static const uint64_t dim_vector = 256;
+static const uint64_t num_vector = 1000000;
+static const uint64_t dim_vector = 96;
 static const uint64_t num_leaf = 50;
-static const uint64_t num_iter = 10;
+static const uint64_t num_iter = 200;
 static const uint64_t file_size = num_vector * dim_vector;
 
-__attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* C, uint64_t* index_queue, uint32_t* visited, int numThreads) {
-  #pragma omp parallel for schedule(static, file_size / numThreads) firstprivate(A, B, C)
+__attribute__((noinline)) Value vector_addition_host(void* data, uint64_t* index_queue, bool* visited, int numThreads) {
+  #pragma omp parallel for schedule(static, file_size / numThreads) //firstprivate(A, B, C)
   for (uint64_t i = 0; i < num_leaf; i++) {
     uint64_t idx = *(index_queue + i);
-//    if (visited[idx] < 1) continue;
+//    if (idx % 4 < 0) continue;
+    if (visited[idx]) continue;
+    Value* A = (Value*)(data + idx * sizeof(Value));
+    Value* B = (Value*)(data + (file_size + idx) * sizeof(Value));
+    Value* C = (Value*)(data + (2 * file_size + idx) * sizeof(Value));
     for (uint64_t j = 0; j < dim_vector; j++) {
-      C[idx + j] = A[idx + j] + B[idx + j];
+      C[idx + j] = A[idx + j] * B[idx + j];
     }
+//    for (uint64_t j = 1; j < dim_vector; j++) {
+//      C[idx] = C[idx + j];
+//    }
     visited[idx] = true;
   }
   return 0;
@@ -56,15 +63,16 @@ int main(int argc, char **argv) {
   srand(0);
 
   // Create an input file with arbitrary data.
-  Value* A = (Value*) aligned_alloc(CACHE_LINE_SIZE, file_size * sizeof(Value));
-  Value* B = (Value*) aligned_alloc(CACHE_LINE_SIZE, file_size * sizeof(Value));
-  Value* C = (Value*) aligned_alloc(CACHE_LINE_SIZE, file_size * sizeof(Value));
+  void* data = (void*) aligned_alloc(CACHE_LINE_SIZE, 3 * file_size * sizeof(Value));
   uint64_t* index_queue = (uint64_t*) aligned_alloc(CACHE_LINE_SIZE, num_iter * num_leaf * sizeof(uint64_t));
   for (uint64_t i = 0; i < num_iter * num_leaf; i++)
     index_queue[i] = rand() / num_vector;
-  uint32_t* visited = (uint32_t*) malloc(file_size * sizeof(uint32_t));
-  for (uint64_t i = 0; i < file_size; i++) 
-    visited[i] = i % 4;
+  bool* visited = (bool*) aligned_alloc(CACHE_LINE_SIZE, num_vector * sizeof(bool));
+  for (uint64_t i = 0; i < num_vector; i++) {
+    visited[i] = false; // (i % 4 < 0) ? false : true;
+//    if (i % num_vector == 0)
+//      printf("%lu\n", i);
+  }
 
 #ifdef GEM_FORGE
   gf_detail_sim_start();
@@ -86,8 +94,7 @@ int main(int argc, char **argv) {
 #endif
 
   for (uint64_t i = 0; i < num_iter; i++) {
-    vector_addition_host(A, B, C, index_queue, visited, numThreads);
-    index_queue += num_leaf;
+    vector_addition_host(data, &index_queue[rand() % num_iter * num_leaf], visited, numThreads);
   }
 
 #ifdef CHECK
@@ -105,11 +112,12 @@ int main(int argc, char **argv) {
   exit(0);
 #endif
 
-  free(A);
-  free(B);
-  free(C);
+  free(data);
+//  free(A);
+//  free(B);
+//  free(C);
   free(index_queue);
-  free(visited);
+//  free(visited);
 
   return 0;
 }
