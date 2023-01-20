@@ -27,31 +27,24 @@ typedef float Value;
 static const uint64_t num_vector = 1000000;
 static const uint64_t dim_vector = 96;
 static const uint64_t num_leaf = 50;
-static const uint64_t num_iter = 200;
+static const uint64_t num_iter = 100;
 static const uint64_t file_size = num_vector * dim_vector;
 
-__attribute__((noinline)) Value vector_addition_host(void* data, uint64_t* index_queue, bool* visited, int numThreads) {
+__attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* C, uint64_t* index_queue, bool* visited, int numThreads) {
   #pragma omp parallel for schedule(static, file_size / numThreads) //firstprivate(A, B, C)
   for (uint64_t i = 0; i < num_leaf; i++) {
     uint64_t idx = *(index_queue + i);
 //    if (idx % 4 < 0) continue;
     if (visited[idx]) continue;
-    Value* A = (Value*)(data + idx * sizeof(Value));
-    Value* B = (Value*)(data + (file_size + idx) * sizeof(Value));
-    Value* C = (Value*)(data + (2 * file_size + idx) * sizeof(Value));
     for (uint64_t j = 0; j < dim_vector; j++) {
       C[idx + j] = A[idx + j] * B[idx + j];
     }
-//    for (uint64_t j = 1; j < dim_vector; j++) {
-//      C[idx] = C[idx + j];
-//    }
     visited[idx] = true;
   }
   return 0;
 }
 
 int main(int argc, char **argv) {
-
   int numThreads = 1;
   if (argc == 2) {
     numThreads = atoi(argv[1]);
@@ -63,7 +56,31 @@ int main(int argc, char **argv) {
   srand(0);
 
   // Create an input file with arbitrary data.
-  void* data = (void*) aligned_alloc(CACHE_LINE_SIZE, 3 * file_size * sizeof(Value));
+  Value* data = (Value*) aligned_alloc(CACHE_LINE_SIZE, 2 * file_size * sizeof(Value));
+  Value* A = data;
+  Value* B = data + file_size;
+  Value* C0 = (Value*) aligned_alloc(CACHE_LINE_SIZE, file_size * sizeof(Value));
+  FILE* input_file = fopen("/home/gem-forge-framework/dataset/omp_va_input", "rb");
+  bool need_new_input = true;
+  if (input_file != NULL) {
+    fseek(input_file, 0L, SEEK_END);
+    uint64_t sz = ftell(input_file);
+    fseek(input_file, 0L, SEEK_SET);
+    if (sz == 2 * file_size * sizeof(Value)) {
+      need_new_input = false;
+      fread((void*)data, sizeof(Value), 2 * file_size, input_file);
+    }
+    fclose(input_file);
+  }
+  if (need_new_input) {
+    input_file = fopen("/home/gem-forge-framework/dataset/omp_va_input", "wb");
+    for (uint64_t i = 0; i < 2 * file_size; i++) {
+      data[i] = rand(); 
+    }
+    fwrite((void*)data, sizeof(Value), 2 * file_size, input_file);
+    fclose(input_file);
+  }
+
   uint64_t* index_queue = (uint64_t*) aligned_alloc(CACHE_LINE_SIZE, num_iter * num_leaf * sizeof(uint64_t));
   for (uint64_t i = 0; i < num_iter * num_leaf; i++)
     index_queue[i] = rand() / num_vector;
@@ -94,30 +111,36 @@ int main(int argc, char **argv) {
 #endif
 
   for (uint64_t i = 0; i < num_iter; i++) {
-    vector_addition_host(data, &index_queue[rand() % num_iter * num_leaf], visited, numThreads);
+    vector_addition_host(A, B, C0, &index_queue[i * num_leaf], visited, numThreads);
   }
+
+#ifdef GEM_FORGE
+  gf_detail_sim_end();
+#endif
 
 #ifdef CHECK
   uint64_t err_cnt = 0;
-  Value* C_CHECK = (Value*) aligned_alloc(CACHE_LINE_SIZE, file_size * sizeof(Value));
-  vector_addition_host(A, B, C_CHECK, index_queue, numThreads);
+  Value* C1 = (Value*) aligned_alloc(CACHE_LINE_SIZE, file_size * sizeof(Value));
+  for (uint64_t i = 0; i < num_vector; i++) {
+    visited[i] = false;
+  }
+  for (uint64_t i = 0; i < num_iter; i++) {
+    vector_addition_host(A, B, C1, &index_queue[i * num_leaf], visited, numThreads);
+  }
+  printf("[ARC-SJ] Starting CHECK stage.\n");
   for (uint64_t i = 0; i < file_size; i++) {
-    err_cnt += (C[i] == C_CHECK[i]);
+    err_cnt += (C0[i] != C1[i]);
   }
   printf("Error count = %ld\n", err_cnt);
 #endif
 
-#ifdef GEM_FORGE
-  gf_detail_sim_end();
-  exit(0);
-#endif
-
   free(data);
-//  free(A);
-//  free(B);
-//  free(C);
+  free(C0);
+#ifdef CHECK
+  free(C1);
+#endif
   free(index_queue);
-//  free(visited);
+  free(visited);
 
   return 0;
 }
