@@ -31,10 +31,9 @@ static const uint64_t num_iter = 100;
 static const uint64_t file_size = num_vector * dim_vector;
 
 __attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* C, uint64_t* index_queue, bool* visited, int numThreads) {
-  #pragma omp parallel for schedule(static, file_size / numThreads) //firstprivate(A, B, C)
+//  #pragma omp parallel for schedule(static, file_size / numThreads) //firstprivate(A, B, C)
   for (uint64_t i = 0; i < num_leaf; i++) {
     uint64_t idx = *(index_queue + i);
-//    if (idx % 4 < 0) continue;
     if (visited[idx]) continue;
     for (uint64_t j = 0; j < dim_vector; j++) {
       C[idx + j] = A[idx + j] * B[idx + j];
@@ -86,9 +85,7 @@ int main(int argc, char **argv) {
     index_queue[i] = rand() / num_vector;
   bool* visited = (bool*) aligned_alloc(CACHE_LINE_SIZE, num_vector * sizeof(bool));
   for (uint64_t i = 0; i < num_vector; i++) {
-    visited[i] = false; // (i % 4 < 0) ? false : true;
-//    if (i % num_vector == 0)
-//      printf("%lu\n", i);
+    visited[i] = false; 
   }
 
 #ifdef GEM_FORGE
@@ -110,6 +107,7 @@ int main(int argc, char **argv) {
   gf_reset_stats();
 #endif
 
+#pragma omp parallel for schedule(static, file_size / numThreads) //firstprivate(A, B, C)
   for (uint64_t i = 0; i < num_iter; i++) {
     vector_addition_host(A, B, C0, &index_queue[i * num_leaf], visited, numThreads);
   }
