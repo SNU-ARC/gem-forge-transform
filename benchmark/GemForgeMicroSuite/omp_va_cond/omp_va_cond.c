@@ -30,16 +30,36 @@ static const uint64_t num_leaf = 50;
 static const uint64_t num_iter = 100;
 static const uint64_t file_size = num_vector * dim_vector;
 
-__attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* C, uint64_t* index_queue, bool* visited, int numThreads) {
+__attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* C, uint64_t* index_queue, uint64_t index_granularity, uint64_t value_granularity, int numThreads) {
 //  #pragma omp parallel for schedule(static, file_size / numThreads) //firstprivate(A, B, C)
+
+  // Editor: K16DIABLO (Sungjun Jung)
+  // Example assembly for programmable stream prefetching
+  uint64_t offset_begin = 0;
+  uint64_t offset_end = num_leaf;
+  __asm__ volatile (
+      "stream.cfg.idx.base  $0, %[idx_base_addr] \t\n"    // Configure stream (base address of index)
+      "stream.cfg.idx.gran  $0, %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
+      "stream.cfg.val.base  $0, %[val_base_addr] \t\n"    // Configure stream (base address of value)
+      "stream.cfg.val.gran  $0, %[val_granularity] \t\n"  // Configure stream (access granularity of value)
+      "stream.input.offset.begin  $0, %[offset_begin] \t\n" // Input stream (offset_begin)
+      "stream.input.offset.end  $0, %[offset_end] \t\n"  // Input stream (offset_end)
+      :
+      :[idx_base_addr]"r"(index_queue), [idx_granularity]"r"(index_granularity),
+      [val_base_addr]"r"(A), [val_granularity]"r"(value_granularity),
+      [offset_begin]"r"(offset_begin), [offset_end]"r"(offset_end)
+  );
+
   for (uint64_t i = 0; i < num_leaf; i++) {
     uint64_t idx = *(index_queue + i);
-    if (visited[idx]) continue;
     for (uint64_t j = 0; j < dim_vector; j++) {
       C[idx + j] = A[idx + j] * B[idx + j];
     }
-    visited[idx] = true;
   }
+
+  __asm__ volatile (
+      "stream.terminate $0 \t\n"
+  );
   return 0;
 }
 
@@ -83,10 +103,6 @@ int main(int argc, char **argv) {
   uint64_t* index_queue = (uint64_t*) aligned_alloc(CACHE_LINE_SIZE, num_iter * num_leaf * sizeof(uint64_t));
   for (uint64_t i = 0; i < num_iter * num_leaf; i++)
     index_queue[i] = rand() / num_vector;
-  bool* visited = (bool*) aligned_alloc(CACHE_LINE_SIZE, num_vector * sizeof(bool));
-  for (uint64_t i = 0; i < num_vector; i++) {
-    visited[i] = false; 
-  }
 
 #ifdef GEM_FORGE
   gf_detail_sim_start();
@@ -107,9 +123,9 @@ int main(int argc, char **argv) {
   gf_reset_stats();
 #endif
 
-#pragma omp parallel for schedule(static, file_size / numThreads) //firstprivate(A, B, C)
+//#pragma omp parallel for schedule(static, file_size / numThreads) //firstprivate(A, B, C)
   for (uint64_t i = 0; i < num_iter; i++) {
-    vector_addition_host(A, B, C0, &index_queue[i * num_leaf], visited, numThreads);
+    vector_addition_host(A, B, C0, &index_queue[i * num_leaf], sizeof(uint64_t), sizeof(Value) * dim_vector, numThreads);
   }
 
 #ifdef GEM_FORGE
@@ -123,7 +139,7 @@ int main(int argc, char **argv) {
     visited[i] = false;
   }
   for (uint64_t i = 0; i < num_iter; i++) {
-    vector_addition_host(A, B, C1, &index_queue[i * num_leaf], visited, numThreads);
+    vector_addition_host(A, B, C1, &index_queue[i * num_leaf], sizeof(uint64_t), sizeof(Value) * dim_vector, numThreads);
   }
   printf("[ARC-SJ] Starting CHECK stage.\n");
   for (uint64_t i = 0; i < file_size; i++) {
@@ -138,7 +154,6 @@ int main(int argc, char **argv) {
   free(C1);
 #endif
   free(index_queue);
-  free(visited);
 
   return 0;
 }
