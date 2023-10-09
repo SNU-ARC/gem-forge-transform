@@ -11,7 +11,7 @@
  ****************************************************************/
 
 void stream_config (uint32_t stream_id, void* idx_base_addr, uint64_t idx_granularity, void* val_base_addr, uint64_t val_granularity) {
-  asm volatile (
+  __asm__ volatile (
       "stream.cfg.idx.base  %[stream_id], %[idx_base_addr] \t\n"    // Configure stream (base address of index)
       "stream.cfg.idx.gran  %[stream_id], %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
       "stream.cfg.val.base  %[stream_id], %[val_base_addr] \t\n"    // Configure stream (base address of value)
@@ -24,7 +24,7 @@ void stream_config (uint32_t stream_id, void* idx_base_addr, uint64_t idx_granul
 }
 
 void stream_input (uint32_t stream_id, int64_t offset_begin, int64_t offset_end) {
-  asm volatile (
+  __asm__ volatile (
       "stream.input.offset.begin  %[stream_id], %[offset_begin] \t\n"  // Input stream (offset_begin)
       "stream.input.offset.end    %[stream_id], %[offset_end] \t\n"    // Input stream (offset_end)
       :
@@ -34,7 +34,7 @@ void stream_input (uint32_t stream_id, int64_t offset_begin, int64_t offset_end)
 }
 
 void stream_terminate (uint32_t stream_id) {
-  asm volatile (
+  __asm__ volatile (
       "stream.terminate %[stream_id] \t\n"  // Terminate stream
       :
       :[stream_id]"r"(stream_id)
