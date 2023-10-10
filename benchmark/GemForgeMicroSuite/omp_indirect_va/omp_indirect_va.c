@@ -35,11 +35,11 @@ static const uint64_t file_size = num_vector * dim_vector;
 __attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* C, uint64_t* index_queue, uint64_t index_granularity, uint64_t value_granularity, int numThreads) {
 //  #pragma omp parallel for schedule(static, file_size / numThreads) //firstprivate(A, B, C)
 
+  uint64_t offset_begin = 0;
+  uint64_t offset_end = num_leaf;
 #ifdef PSP
   // Editor: K16DIABLO (Sungjun Jung)
   // Example assembly for programmable stream prefetching
-  uint64_t offset_begin = 0;
-  uint64_t offset_end = num_leaf;
   __asm__ volatile (
       "stream.cfg.idx.base  $0, %[idx_base_addr] \t\n"    // Configure stream (base address of index)
       "stream.cfg.idx.gran  $0, %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
@@ -54,7 +54,7 @@ __attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* 
   );
 #endif
 
-  for (uint64_t i = 0; i < num_leaf; i++) {
+  for (uint64_t i = offset_begin; i < offset_end; i++) {
     uint64_t idx = *(index_queue + i);
     for (uint64_t j = 0; j < dim_vector; j++) {
       C[idx + j] = A[idx + j] * B[idx + j];
@@ -71,7 +71,6 @@ __attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* 
 
 int main(int argc, char **argv) {
   int numThreads = 1;
-  printf("argc: %d, argv[1]: %s, argv[2]: %s\n", argc, argv[1], argv[2]);
   if (argc > 1) {
     numThreads = atoi(argv[1]);
   }
