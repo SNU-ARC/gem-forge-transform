@@ -16,6 +16,8 @@
 
 //#define CHECK
 
+//#define PSP
+
 typedef float Value;
 
 // Turn off Cache warm-up by default, because it is not our assumption
@@ -33,6 +35,7 @@ static const uint64_t file_size = num_vector * dim_vector;
 __attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* C, uint64_t* index_queue, uint64_t index_granularity, uint64_t value_granularity, int numThreads) {
 //  #pragma omp parallel for schedule(static, file_size / numThreads) //firstprivate(A, B, C)
 
+#ifdef PSP
   // Editor: K16DIABLO (Sungjun Jung)
   // Example assembly for programmable stream prefetching
   uint64_t offset_begin = 0;
@@ -49,6 +52,7 @@ __attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* 
       [val_base_addr]"r"(A), [val_granularity]"r"(value_granularity),
       [offset_begin]"r"(offset_begin), [offset_end]"r"(offset_end)
   );
+#endif
 
   for (uint64_t i = 0; i < num_leaf; i++) {
     uint64_t idx = *(index_queue + i);
@@ -57,15 +61,18 @@ __attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* 
     }
   }
 
+#ifdef PSP
   __asm__ volatile (
       "stream.terminate $0 \t\n"
   );
+#endif
   return 0;
 }
 
 int main(int argc, char **argv) {
   int numThreads = 1;
-  if (argc == 2) {
+  printf("argc: %d, argv[1]: %s, argv[2]: %s\n", argc, argv[1], argv[2]);
+  if (argc > 1) {
     numThreads = atoi(argv[1]);
   }
   printf("Number of Threads: %d.\n", numThreads);
@@ -79,7 +86,7 @@ int main(int argc, char **argv) {
   Value* A = data;
   Value* B = data + file_size;
   Value* C0 = (Value*) aligned_alloc(CACHE_LINE_SIZE, file_size * sizeof(Value));
-  FILE* input_file = fopen("/home/gem-forge-framework/dataset/omp_va_input", "rb");
+  FILE* input_file = fopen(argv[2], "rb");
   bool need_new_input = true;
   if (input_file != NULL) {
     fseek(input_file, 0L, SEEK_END);
@@ -91,14 +98,14 @@ int main(int argc, char **argv) {
     }
     fclose(input_file);
   }
-  if (need_new_input) {
-    input_file = fopen("/home/gem-forge-framework/dataset/omp_va_input", "wb");
-    for (uint64_t i = 0; i < 2 * file_size; i++) {
-      data[i] = rand(); 
-    }
-    fwrite((void*)data, sizeof(Value), 2 * file_size, input_file);
-    fclose(input_file);
-  }
+//  if (need_new_input) {
+//    input_file = fopen(argv[2], "wb");
+//    for (uint64_t i = 0; i < 2 * file_size; i++) {
+//      data[i] = rand(); 
+//    }
+//    fwrite((void*)data, sizeof(Value), 2 * file_size, input_file);
+//    fclose(input_file);
+//  }
 
   uint64_t* index_queue = (uint64_t*) aligned_alloc(CACHE_LINE_SIZE, num_iter * num_leaf * sizeof(uint64_t));
   for (uint64_t i = 0; i < num_iter * num_leaf; i++)
