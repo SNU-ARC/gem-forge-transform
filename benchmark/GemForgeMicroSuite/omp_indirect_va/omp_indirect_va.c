@@ -26,11 +26,11 @@ typedef float Value;
 //static const uint64_t file_size = 65536; 
 //static const uint64_t file_size = 33554432; 
 //static const uint64_t file_size = 16777216;
-static const uint64_t num_vector = 1000000;
-static const uint64_t dim_vector = 96;
-static const uint64_t num_leaf = 50;
-static const uint64_t num_iter = 100;
-static const uint64_t file_size = num_vector * dim_vector;
+static uint64_t num_vector;
+static uint64_t dim_vector;
+static uint64_t num_leaf = 50;
+static uint64_t num_iter = 10;
+static uint64_t file_size;
 
 __attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* C, uint64_t* index_queue, uint64_t index_granularity, uint64_t value_granularity, int numThreads) {
 //  #pragma omp parallel for schedule(static, file_size / numThreads) //firstprivate(A, B, C)
@@ -80,31 +80,31 @@ int main(int argc, char **argv) {
   omp_set_schedule(omp_sched_static, 0);
   srand(0);
 
+  // Open file and parse feature vector num & dim
+  FILE* input_file = fopen(argv[2], "rb");
+  if (input_file == NULL) {
+    printf("[Error] Invalid file name\n");
+    exit;
+  }
+  fread((void*)&num_vector, sizeof(uint64_t), 1, input_file);
+  fread((void*)&dim_vector, sizeof(uint64_t), 1, input_file);
+  file_size = num_vector * dim_vector;
+  fseek(input_file, 0L, SEEK_SET);
+  printf("num_vector: %lu, dim_vector: %lu, file_size: %lu\n", num_vector, dim_vector, file_size);
+
   // Create an input file with arbitrary data.
   Value* data = (Value*) aligned_alloc(CACHE_LINE_SIZE, 2 * file_size * sizeof(Value));
   Value* A = data;
   Value* B = data + file_size;
   Value* C0 = (Value*) aligned_alloc(CACHE_LINE_SIZE, file_size * sizeof(Value));
-  FILE* input_file = fopen(argv[2], "rb");
-  bool need_new_input = true;
-  if (input_file != NULL) {
-    fseek(input_file, 0L, SEEK_END);
-    uint64_t sz = ftell(input_file);
-    fseek(input_file, 0L, SEEK_SET);
-    if (sz == 2 * file_size * sizeof(Value)) {
-      need_new_input = false;
-      fread((void*)data, sizeof(Value), 2 * file_size, input_file);
-    }
-    fclose(input_file);
-  }
-//  if (need_new_input) {
-//    input_file = fopen(argv[2], "wb");
-//    for (uint64_t i = 0; i < 2 * file_size; i++) {
-//      data[i] = rand(); 
-//    }
-//    fwrite((void*)data, sizeof(Value), 2 * file_size, input_file);
-//    fclose(input_file);
-//  }
+
+  // Read data from file
+  fseek(input_file, 2 * sizeof(uint64_t), SEEK_CUR);
+  fread((void*)A, sizeof(Value), file_size, input_file);
+  fseek(input_file, 0L, SEEK_SET);
+  fseek(input_file, 2 * sizeof(uint64_t), SEEK_CUR);
+  fread((void*)B, sizeof(Value), file_size, input_file);
+  fclose(input_file);
 
   uint64_t* index_queue = (uint64_t*) aligned_alloc(CACHE_LINE_SIZE, num_iter * num_leaf * sizeof(uint64_t));
   for (uint64_t i = 0; i < num_iter * num_leaf; i++)
@@ -131,6 +131,7 @@ int main(int argc, char **argv) {
 
 //#pragma omp parallel for schedule(static, file_size / numThreads) //firstprivate(A, B, C)
   for (uint64_t i = 0; i < num_iter; i++) {
+    printf("[ARC-SJ] %luth iteration\n", i);
     vector_addition_host(A, B, C0, &index_queue[i * num_leaf], sizeof(uint64_t), sizeof(Value) * dim_vector, numThreads);
   }
 
