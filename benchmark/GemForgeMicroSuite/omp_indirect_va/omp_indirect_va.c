@@ -16,7 +16,7 @@
 
 //#define CHECK
 
-//#define PSP
+#define PSP
 
 typedef float Value;
 
@@ -36,7 +36,7 @@ __attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* 
 //  #pragma omp parallel for schedule(static, file_size / numThreads) //firstprivate(A, B, C)
 
   uint64_t offset_begin = 0;
-  uint64_t offset_end = num_leaf;
+  uint64_t offset_end = rand() % num_leaf;
 #ifdef PSP
   // Editor: K16DIABLO (Sungjun Jung)
   // Example assembly for programmable stream prefetching
@@ -45,8 +45,10 @@ __attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* 
       "stream.cfg.idx.gran  $0, %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
       "stream.cfg.val.base  $0, %[val_base_addr] \t\n"    // Configure stream (base address of value)
       "stream.cfg.val.gran  $0, %[val_granularity] \t\n"  // Configure stream (access granularity of value)
+      "stream.cfg.ready $0 \t\n"  // Configure steam ready
       "stream.input.offset.begin  $0, %[offset_begin] \t\n" // Input stream (offset_begin)
       "stream.input.offset.end  $0, %[offset_end] \t\n"  // Input stream (offset_end)
+      "stream.input.ready  $0 \t\n"  // Input stream ready
       :
       :[idx_base_addr]"r"(index_queue), [idx_granularity]"r"(index_granularity),
       [val_base_addr]"r"(A), [val_granularity]"r"(value_granularity),
@@ -108,7 +110,7 @@ int main(int argc, char **argv) {
 
   uint64_t* index_queue = (uint64_t*) aligned_alloc(CACHE_LINE_SIZE, num_iter * num_leaf * sizeof(uint64_t));
   for (uint64_t i = 0; i < num_iter * num_leaf; i++)
-    index_queue[i] = rand() / num_vector;
+    index_queue[i] = rand() % num_vector;
 
 #ifdef GEM_FORGE
   gf_detail_sim_start();
@@ -131,8 +133,7 @@ int main(int argc, char **argv) {
 
 //#pragma omp parallel for schedule(static, file_size / numThreads) //firstprivate(A, B, C)
   for (uint64_t i = 0; i < num_iter; i++) {
-    printf("[ARC-SJ] %luth iteration\n", i);
-    vector_addition_host(A, B, C0, &index_queue[i * num_leaf], sizeof(uint64_t), sizeof(Value) * dim_vector, numThreads);
+    vector_addition_host(A, B, C0, &index_queue[rand() % num_iter * num_leaf], sizeof(uint64_t), sizeof(Value) * dim_vector, numThreads);
   }
 
 #ifdef GEM_FORGE
