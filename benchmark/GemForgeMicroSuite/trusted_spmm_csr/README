@@ -1,0 +1,43 @@
+Run "python split_dataset.py" and then it generate binary files as below
+	- harvard_b_mat.dat >> b
+	- harvard_cols.dat  >> cols -> indx 
+	- harvard_pntrb.dat >> pntrb
+	- harvard_pntre.dat >> pntre
+	- harvard_rows.dat  >> rows
+	- harvard_val.dat   >> val
+
+
++ configuratiion
+1. dim_vector_hvd      = 128;
+   -> dimention of feature vector.
+2. filename            = "./harvard.mtx"
+   -> mtx filename 
+
+3. configuration from file
+num_node			= 15126;
+num_edge_hvd        = 824617; 
+nonzero             = 1649234;
+
++ examples
+
+example 1) harvard.mtx line 3 
+		   2909 1
+           rows[0] = 2909
+	       cols[0] = 1
+
+example 2) harvard.mtx line 3 to 11		 
+		   2909 1
+		   3161 1
+		   5147 1
+		   7884 1
+		   8114 1
+		   8438 1
+		   10363 1
+		   12280 1
+		   24 2
+
+		   pntrb[0] = 0 -> start index of 1-th node in cols(indx)
+		   pntre[0] = 8 -> end index of 1-th node in cols(indx)
+
+example 3) b_mat, val are randomized by 'np.random.rand()' in python code.
+
