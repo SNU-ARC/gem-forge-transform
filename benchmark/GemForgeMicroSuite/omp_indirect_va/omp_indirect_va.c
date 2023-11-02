@@ -56,10 +56,15 @@ __attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* 
   );
 #endif
 
+  printf("Indices: ");
+  for (uint64_t i = offset_begin; i < offset_end; i++)
+    printf("%lu, ", *(index_queue + i));
+  printf("\n");
+
   for (uint64_t i = offset_begin; i < offset_end; i++) {
     uint64_t idx = *(index_queue + i);
     for (uint64_t j = 0; j < dim_vector; j++) {
-      C[idx + j] = A[idx + j] * B[idx + j];
+      C[idx * dim_vector + j] = A[idx * dim_vector + j] * B[idx * dim_vector + j];
     }
   }
 
@@ -86,7 +91,7 @@ int main(int argc, char **argv) {
   FILE* input_file = fopen(argv[2], "rb");
   if (input_file == NULL) {
     printf("[Error] Invalid file name\n");
-    exit;
+    return 0;
   }
   fread((void*)&num_vector, sizeof(uint64_t), 1, input_file);
   fread((void*)&dim_vector, sizeof(uint64_t), 1, input_file);
