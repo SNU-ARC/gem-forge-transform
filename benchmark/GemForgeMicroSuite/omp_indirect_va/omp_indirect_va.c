@@ -15,8 +15,9 @@
 #include "immintrin.h"
 
 //#define CHECK
+//#define LOG
 
-#define PSP
+//#define PSP
 
 typedef float Value;
 
@@ -56,10 +57,12 @@ __attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* 
   );
 #endif
 
+#ifdef LOG
   printf("Indices: ");
   for (uint64_t i = offset_begin; i < offset_end; i++)
     printf("%lu, ", *(index_queue + i));
   printf("\n");
+#endif
 
   for (uint64_t i = offset_begin; i < offset_end; i++) {
     uint64_t idx = *(index_queue + i);
