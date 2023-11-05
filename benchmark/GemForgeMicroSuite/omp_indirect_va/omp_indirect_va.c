@@ -29,14 +29,14 @@ typedef float Value;
 static uint64_t num_vector;
 static uint64_t dim_vector;
 static uint64_t num_leaf = 50;
-static uint64_t num_iter = 10;
+static uint64_t num_iter = 20;
 static uint64_t file_size;
 
 __attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* C, uint64_t* index_queue, uint64_t index_granularity, uint64_t value_granularity, int numThreads) {
 //  #pragma omp parallel for schedule(static, file_size / numThreads) //firstprivate(A, B, C)
 
   uint64_t offset_begin = 0;
-  uint64_t offset_end = rand() % num_leaf;
+  uint64_t offset_end = num_leaf;
 #ifdef PSP
   // Editor: K16DIABLO (Sungjun Jung)
   // Example assembly for programmable stream prefetching
@@ -56,10 +56,10 @@ __attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* 
   );
 #endif
 
-  printf("Indices: ");
-  for (uint64_t i = offset_begin; i < offset_end; i++)
-    printf("%lu, ", *(index_queue + i));
-  printf("\n");
+//  printf("Indices: ");
+//  for (uint64_t i = offset_begin; i < offset_end; i++)
+//    printf("%lu, ", *(index_queue + i));
+//  printf("\n");
 
   for (uint64_t i = offset_begin; i < offset_end; i++) {
     uint64_t idx = *(index_queue + i);
@@ -136,7 +136,7 @@ int main(int argc, char **argv) {
   gf_reset_stats();
 #endif
 
-//#pragma omp parallel for schedule(static, file_size / numThreads) //firstprivate(A, B, C)
+#pragma omp parallel for schedule(static, num_iter / numThreads) //firstprivate(A, B, C)
   for (uint64_t i = 0; i < num_iter; i++) {
     vector_addition_host(A, B, C0, &index_queue[rand() % num_iter * num_leaf], sizeof(uint64_t), sizeof(Value) * dim_vector, numThreads);
   }
