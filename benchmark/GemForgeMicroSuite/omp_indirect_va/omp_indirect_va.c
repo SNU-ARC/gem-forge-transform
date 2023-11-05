@@ -17,7 +17,7 @@
 //#define CHECK
 //#define LOG
 
-//#define PSP
+#define PSP
 
 typedef float Value;
 
@@ -139,7 +139,7 @@ int main(int argc, char **argv) {
   gf_reset_stats();
 #endif
 
-//#pragma omp parallel for schedule(static, file_size / numThreads) //firstprivate(A, B, C)
+#pragma omp parallel for schedule(static, numThreads / numThreads) //firstprivate(A, B, C)
   for (uint64_t i = 0; i < num_iter; i++) {
     vector_addition_host(A, B, C0, &index_queue[rand() % num_iter * num_leaf], sizeof(uint64_t), sizeof(Value) * dim_vector, numThreads);
   }
