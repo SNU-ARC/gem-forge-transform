@@ -26,53 +26,13 @@ static const uint64_t nonzero             = 1649234;
 static const uint64_t num_iter			  = 1;
 //#define CHECK
 
-//#define PSP
+#define PTTIME
+#define PSP
 
 typedef float Value;
 
-// Turn off Cache warm-up by default, because it is not our assumption
-//#define WARM_CACHE
-
-//__attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* C, uint64_t* index_queue, uint64_t index_granularity, uint64_t value_granularity, int numThreads) {
-////  #pragma omp parallel for schedule(static, file_size / numThreads) //firstprivate(A, B, C)
-//
-//#ifdef PSP
-//  // Editor: K16DIABLO (Sungjun Jung)
-//  // Example assembly for programmable stream prefetching
-//  uint64_t offset_begin = 0;
-//  uint64_t offset_end = num_leaf;
-//  __asm__ volatile (
-//      "stream.cfg.idx.base  $0, %[idx_base_addr] \t\n"    // Configure stream (base address of index)
-//      "stream.cfg.idx.gran  $0, %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
-//      "stream.cfg.val.base  $0, %[val_base_addr] \t\n"    // Configure stream (base address of value)
-//      "stream.cfg.val.gran  $0, %[val_granularity] \t\n"  // Configure stream (access granularity of value)
-//      "stream.input.offset.begin  $0, %[offset_begin] \t\n" // Input stream (offset_begin)
-//      "stream.input.offset.end  $0, %[offset_end] \t\n"  // Input stream (offset_end)
-//      :
-//      :[idx_base_addr]"r"(index_queue), [idx_granularity]"r"(index_granularity),
-//      [val_base_addr]"r"(A), [val_granularity]"r"(value_granularity),
-//      [offset_begin]"r"(offset_begin), [offset_end]"r"(offset_end)
-//  );
-//#endif
-//
-//  for (uint64_t i = 0; i < num_leaf; i++) {
-//    uint64_t idx = *(index_queue + i);
-//    for (uint64_t j = 0; j < dim_vector; j++) {
-//      C[idx + j] = A[idx + j] * B[idx + j];
-//    }
-//  }
-//
-//#ifdef PSP
-//  __asm__ volatile (
-//      "stream.terminate $0 \t\n"
-//  );
-//#endif
-//  return 0;
-//}
-
 // yosong
-//__attribute__((noinline)) void truested_spmm_csr 
-__attribute__((noinline)) Value truested_spmm_csr 
+__attribute__((noinline)) Value trusted_spmm_csr 
 (
 //   const char tkern,       // kernel variations
    const INDEXTYPE m,      // rows of A 
@@ -92,18 +52,48 @@ __attribute__((noinline)) Value truested_spmm_csr
    const INDEXTYPE ldb,    // leading dimension of B (col size since B row-major)  
 //   const VALUETYPE beta,   // beta value 
    VALUETYPE *c,           // Dense matrix c
-   const INDEXTYPE ldc     // leading dimension of c (col size since C row-major) 
-)
-{
+   const INDEXTYPE ldc,     // leading dimension of c (col size since C row-major) 
+   const int numThreads 
+) {
+#ifdef PSP
 #ifdef PTTIME 
-   #pragma omp parallel for
+   #pragma omp parallel for schedule(static)
+#endif
+   for (INDEXTYPE i = 0; i < numThreads; i++) {
+     INDEXTYPE* idx_base_addr = indx;
+     uint64_t idx_granularity = sizeof(INDEXTYPE);
+     VALUETYPE* val_base_addr = b;
+     uint64_t val_granularity = k * sizeof(INDEXTYPE);
+     __asm__ volatile (
+         "stream.cfg.idx.base  $0, %[idx_base_addr] \t\n"    // Configure stream (base address of index)
+         "stream.cfg.idx.gran  $0, %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
+         "stream.cfg.val.base  $0, %[val_base_addr] \t\n"    // Configure stream (base address of value)
+         "stream.cfg.val.gran  $0, %[val_granularity] \t\n"  // Configure stream (access granularity of value)
+         "stream.cfg.ready $0 \t\n"  // Configure steam ready
+         :
+         :[idx_base_addr]"r"(idx_base_addr), [idx_granularity]"r"(idx_granularity),
+         [val_base_addr]"r"(val_base_addr), [val_granularity]"r"(val_granularity)
+      );
+   }
+#endif
+#ifdef PTTIME 
+   #pragma omp parallel for schedule(static, m / numThreads)
 #endif
    // spmm    
-   for (INDEXTYPE i = 0; i < m; i++)
-   {
-	  //printf("i = %ld\n", i);
-      for (INDEXTYPE j=pntrb[i]; j < pntre[i]; j++)
-      {
+   for (INDEXTYPE i = 0; i < m; i++) {
+//     printf("i = %ld\n", i);
+#ifdef PSP
+     INDEXTYPE offset_begin = pntrb[i];
+     INDEXTYPE offset_end = pntre[i];
+     __asm__ volatile (
+         "stream.input.offset.begin  $0, %[offset_begin] \t\n" // Input stream (offset_begin)
+         "stream.input.offset.end  $0, %[offset_end] \t\n"  // Input stream (offset_end)
+         "stream.input.ready  $0 \t\n"  // Input stream ready
+         :
+         :[offset_begin]"r"(offset_begin), [offset_end]"r"(offset_end)
+      );
+#endif
+      for (INDEXTYPE j=pntrb[i]; j < pntre[i]; j++) {
 		 //if(i==0){
 			// printf("c[%ld*%ld] += val[%ld]*b[indx[%ld]*%ld]\n", i,ldc,j,j, ldb);
 			//intf("k = %ld\n", k);
@@ -113,6 +103,16 @@ __attribute__((noinline)) Value truested_spmm_csr
             c[i*ldc+kk] += (val[j]*b[indx[j]*ldb+kk]);
       }
    }
+#ifdef PSP
+#ifdef PTTIME 
+   #pragma omp parallel for schedule(static)
+#endif
+   for (INDEXTYPE i = 0; i < numThreads; i++) {
+      __asm__ volatile (
+          "stream.terminate $0 \t\n"
+      );
+   }
+#endif
 
    return 0;
 }
@@ -130,7 +130,7 @@ int main(int argc, char **argv) {
   srand(0);
 
   // indx from file
-  FILE* fp_mtx = fopen("../transform/benchmark/GemForgeMicroSuite/trusted_spmm_csr/dataset/harvard_rows.dat", "rb");
+  FILE* fp_mtx = fopen("../dataset/graph/harvard/harvard_rows.dat", "rb");
   INDEXTYPE* indx = (INDEXTYPE*) aligned_alloc(CACHE_LINE_SIZE,  file_size_indx_hvd * sizeof(INDEXTYPE));
   if (fp_mtx != NULL) {
     fseek(fp_mtx, 0L, SEEK_END);
@@ -141,6 +141,10 @@ int main(int argc, char **argv) {
     }
     fclose(fp_mtx);
   }
+  else {
+    printf("Cannot find harvard_row.dat\n");
+    return 0;
+  }
 
   //printf("indx[0] = %lu\n" ,indx[0]);
   //printf("indx[1] = %lu\n" ,indx[1]);
@@ -148,7 +152,7 @@ int main(int argc, char **argv) {
   //printf("indx[3] = %lu\n" ,indx[3]);
 
   // pntrb from file
-  FILE* fp_mtx2 = fopen("../transform/benchmark/GemForgeMicroSuite/trusted_spmm_csr/dataset/harvard_pntrb.dat", "rb");
+  FILE* fp_mtx2 = fopen("../dataset/graph/harvard/harvard_pntrb.dat", "rb");
 
   INDEXTYPE* pntrb = (INDEXTYPE*) aligned_alloc(CACHE_LINE_SIZE,  file_size_pntr_hvd * sizeof(INDEXTYPE));
 
@@ -161,6 +165,10 @@ int main(int argc, char **argv) {
     }
     fclose(fp_mtx2);
   }
+  else {
+    printf("Cannot find harvard_pntrb.dat\n");
+    return 0;
+  }
 
   //printf("pntrb[0] = %lu\n" ,pntrb[0]);
   //printf("pntrb[1] = %lu\n" ,pntrb[1]);
@@ -168,7 +176,7 @@ int main(int argc, char **argv) {
   //printf("pntrb[3] = %lu\n" ,pntrb[3]);
 
   // pntre from file
-  FILE* fp_mtx3 = fopen("../transform/benchmark/GemForgeMicroSuite/trusted_spmm_csr/dataset/harvard_pntre.dat", "rb");
+  FILE* fp_mtx3 = fopen("../dataset/graph/harvard/harvard_pntre.dat", "rb");
 
   INDEXTYPE* pntre = (INDEXTYPE*) aligned_alloc(CACHE_LINE_SIZE,  file_size_pntr_hvd * sizeof(INDEXTYPE));
 
@@ -181,6 +189,10 @@ int main(int argc, char **argv) {
     }
     fclose(fp_mtx3);
   }
+  else {
+    printf("Cannot find harvard_pntre.dat\n");
+    return 0;
+  }
 
   //printf("pntre[0] = %lu\n" ,pntre[0]);
   //printf("pntre[1] = %lu\n" ,pntre[1]);
@@ -192,7 +204,7 @@ int main(int argc, char **argv) {
   INDEXTYPE ldb = dim_vector_hvd;
 
   // b from file
-  FILE* fp_mtx4 = fopen("../transform/benchmark/GemForgeMicroSuite/trusted_spmm_csr/dataset/harvard_b_mat.dat", "rb");
+  FILE* fp_mtx4 = fopen("../dataset/graph/harvard/harvard_b_mat.dat", "rb");
 
   if (fp_mtx4 != NULL) {
     fseek(fp_mtx4, 0L, SEEK_END);
@@ -204,6 +216,10 @@ int main(int argc, char **argv) {
     }
     fclose(fp_mtx4);
   }
+  else {
+    printf("Cannot find harvard_b_mat.dat\n");
+    return 0;
+  }
 
   //printf("b[0] = %f\n" ,b[0]);
   //printf("b[1] = %f\n" ,b[1]);
@@ -214,7 +230,7 @@ int main(int argc, char **argv) {
   VALUETYPE* val = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  nonzero * sizeof(VALUETYPE));
   
   // val from file
-  FILE* fp_mtx5 = fopen("../transform/benchmark/GemForgeMicroSuite/trusted_spmm_csr/dataset/harvard_val.dat", "rb");
+  FILE* fp_mtx5 = fopen("../dataset/graph/harvard/harvard_val.dat", "rb");
 
   if (fp_mtx5 != NULL) {
     fseek(fp_mtx5, 0L, SEEK_END);
@@ -225,6 +241,10 @@ int main(int argc, char **argv) {
       fread((void*)val, sizeof(VALUETYPE), nonzero, fp_mtx5);
     }
     fclose(fp_mtx5);
+  }
+  else {
+    printf("Cannot find harvard_val.dat\n");
+    return 0;
   }
 
   //printf("val[0] = %f\n" ,val[0]);
@@ -260,7 +280,7 @@ int main(int argc, char **argv) {
 #endif
 
   for (uint64_t i = 0; i < num_iter; i++) {
-	  truested_spmm_csr(m, k, val, indx, pntrb, pntre, b, ldb, c, ldc);
+	  trusted_spmm_csr(m, k, val, indx, pntrb, pntre, b, ldb, c, ldc, numThreads);
   }
 
 #ifdef GEM_FORGE
