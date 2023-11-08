@@ -17,7 +17,7 @@
 //#define CHECK
 //#define LOG
 
-//#define PSP
+#define PSP
 
 typedef float Value;
 
@@ -29,7 +29,7 @@ typedef float Value;
 //static const uint64_t file_size = 16777216;
 static uint64_t num_vector;
 static uint64_t dim_vector;
-static uint64_t num_leaf = 50;
+static uint64_t num_leaf = 100;
 static uint64_t num_iter = 20;
 static uint64_t file_size;
 
@@ -44,15 +44,24 @@ __attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* 
   __asm__ volatile (
       "stream.cfg.idx.base  $0, %[idx_base_addr] \t\n"    // Configure stream (base address of index)
       "stream.cfg.idx.gran  $0, %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
-      "stream.cfg.val.base  $0, %[val_base_addr] \t\n"    // Configure stream (base address of value)
+      "stream.cfg.val.base  $0, %[val_A_base_addr] \t\n"    // Configure stream (base address of value)
       "stream.cfg.val.gran  $0, %[val_granularity] \t\n"  // Configure stream (access granularity of value)
       "stream.cfg.ready $0 \t\n"  // Configure steam ready
+      "stream.cfg.idx.base  $1, %[idx_base_addr] \t\n"    // Configure stream (base address of index)
+      "stream.cfg.idx.gran  $1, %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
+      "stream.cfg.val.base  $1, %[val_B_base_addr] \t\n"    // Configure stream (base address of value)
+      "stream.cfg.val.gran  $1, %[val_granularity] \t\n"  // Configure stream (access granularity of value)
+      "stream.cfg.ready $1 \t\n"  // Configure steam ready
       "stream.input.offset.begin  $0, %[offset_begin] \t\n" // Input stream (offset_begin)
       "stream.input.offset.end  $0, %[offset_end] \t\n"  // Input stream (offset_end)
+      "stream.input.offset.begin  $1, %[offset_begin] \t\n" // Input stream (offset_begin)
+      "stream.input.offset.end  $1, %[offset_end] \t\n"  // Input stream (offset_end)
       "stream.input.ready  $0 \t\n"  // Input stream ready
+      "stream.input.ready  $1 \t\n"  // Input stream ready
       :
       :[idx_base_addr]"r"(index_queue), [idx_granularity]"r"(index_granularity),
-      [val_base_addr]"r"(A), [val_granularity]"r"(value_granularity),
+      [val_A_base_addr]"r"(A), [val_B_base_addr]"r"(B), 
+      [val_granularity]"r"(value_granularity),
       [offset_begin]"r"(offset_begin), [offset_end]"r"(offset_end)
   );
 #endif
@@ -66,6 +75,7 @@ __attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* 
 
   for (uint64_t i = offset_begin; i < offset_end; i++) {
     uint64_t idx = *(index_queue + i);
+//    printf("[%luth iter] &A: %x, &B: %x.\n", i, &A[idx * dim_vector], &B[idx * dim_vector]);
     for (uint64_t j = 0; j < dim_vector; j++) {
       C[idx * dim_vector + j] = A[idx * dim_vector + j] * B[idx * dim_vector + j];
     }
@@ -74,6 +84,7 @@ __attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* 
 #ifdef PSP
   __asm__ volatile (
       "stream.terminate $0 \t\n"
+      "stream.terminate $1 \t\n"
   );
 #endif
   return 0;
