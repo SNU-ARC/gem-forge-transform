@@ -210,7 +210,6 @@ int main(int argc, char **argv) {
     fseek(fp_mtx4, 0L, SEEK_END);
     uint64_t sz = ftell(fp_mtx4);
     fseek(fp_mtx4, 0L, SEEK_SET);
-    printf("sz = %lu\n", sz);
     if (sz == num_node*dim_vector_hvd * sizeof(VALUETYPE)) {
       fread((void*)b, sizeof(VALUETYPE), num_node*dim_vector_hvd, fp_mtx4);
     }
@@ -236,7 +235,6 @@ int main(int argc, char **argv) {
     fseek(fp_mtx5, 0L, SEEK_END);
     uint64_t sz = ftell(fp_mtx5);
     fseek(fp_mtx5, 0L, SEEK_SET);
-    printf("sz = %lu\n", sz);
     if (sz == nonzero * sizeof(VALUETYPE)) {
       fread((void*)val, sizeof(VALUETYPE), nonzero, fp_mtx5);
     }
