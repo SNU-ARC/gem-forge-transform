@@ -30,7 +30,7 @@ typedef float Value;
 static uint64_t num_vector;
 static uint64_t dim_vector;
 static uint64_t num_leaf = 100;
-static uint64_t num_iter = 20;
+static uint64_t num_iter = 100;
 static uint64_t file_size;
 
 __attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* C, uint64_t* index_queue, uint64_t index_granularity, uint64_t value_granularity, int numThreads) {
@@ -152,7 +152,7 @@ int main(int argc, char **argv) {
 
 #pragma omp parallel for schedule(static, num_iter / numThreads) //firstprivate(A, B, C)
   for (uint64_t i = 0; i < num_iter; i++) {
-    vector_addition_host(A, B, C0, &index_queue[rand() % num_iter * num_leaf], sizeof(uint64_t), sizeof(Value) * dim_vector, numThreads);
+    vector_addition_host(A, B, C0, &index_queue[i * num_leaf], sizeof(uint64_t), sizeof(Value) * dim_vector, numThreads);
   }
 
 #ifdef GEM_FORGE
@@ -162,11 +162,8 @@ int main(int argc, char **argv) {
 #ifdef CHECK
   uint64_t err_cnt = 0;
   Value* C1 = (Value*) aligned_alloc(CACHE_LINE_SIZE, file_size * sizeof(Value));
-  for (uint64_t i = 0; i < num_vector; i++) {
-    visited[i] = false;
-  }
   for (uint64_t i = 0; i < num_iter; i++) {
-    vector_addition_host(A, B, C1, &index_queue[i * num_leaf], sizeof(uint64_t), sizeof(Value) * dim_vector, numThreads);
+    vector_addition_host(A, B, C1, &index_queue[rand() % num_iter * num_leaf], sizeof(uint64_t), sizeof(Value) * dim_vector, numThreads);
   }
   printf("[ARC-SJ] Starting CHECK stage.\n");
   for (uint64_t i = 0; i < file_size; i++) {
