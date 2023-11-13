@@ -32,87 +32,36 @@ static const uint64_t num_iter			  = 1;
 typedef float Value;
 
 // yosong
-__attribute__((noinline)) Value trusted_spmm_csr 
-(
-//   const char tkern,       // kernel variations
-   const INDEXTYPE m,      // rows of A 
-//   const INDEXTYPE n,      // rows of B
+__attribute__((noinline)) Value trusted_spmm_csr (
    const INDEXTYPE k,      // dimension: col of A and B
-//   const VALUETYPE alpha,  // not used yet  
-//   const INDEXTYPE nnz,    // nonzeros  
-//   const INDEXTYPE rows,   // number of rows for sparse matrix 
-//   const INDEXTYPE cols,   // number of columns for sparse matrix 
    const VALUETYPE *val,   // NNZ value  
    const INDEXTYPE *indx,  // colids -> column indices 
    const INDEXTYPE *pntrb, // starting index for rowptr
    const INDEXTYPE *pntre, // ending index for rowptr
-//   const VALUETYPE *a,     // Dense A (X) matrix
-//   const INDEXTYPE lda,    // leading dimension of A (col size since A row-major)  
    const VALUETYPE *b,     // Dense B matrix
    const INDEXTYPE ldb,    // leading dimension of B (col size since B row-major)  
-//   const VALUETYPE beta,   // beta value 
    VALUETYPE *c,           // Dense matrix c
-   const INDEXTYPE ldc,     // leading dimension of c (col size since C row-major) 
-   const int numThreads 
+   const INDEXTYPE ldc     // leading dimension of c (col size since C row-major) 
 ) {
-#ifdef PSP
-#ifdef PTTIME 
-   #pragma omp parallel for schedule(static)
-#endif
-   for (INDEXTYPE i = 0; i < numThreads; i++) {
-     INDEXTYPE* idx_base_addr = indx;
-     uint64_t idx_granularity = sizeof(INDEXTYPE);
-     VALUETYPE* val_base_addr = b;
-     uint64_t val_granularity = k * sizeof(INDEXTYPE);
-     __asm__ volatile (
-         "stream.cfg.idx.base  $0, %[idx_base_addr] \t\n"    // Configure stream (base address of index)
-         "stream.cfg.idx.gran  $0, %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
-         "stream.cfg.val.base  $0, %[val_base_addr] \t\n"    // Configure stream (base address of value)
-         "stream.cfg.val.gran  $0, %[val_granularity] \t\n"  // Configure stream (access granularity of value)
-         "stream.cfg.ready $0 \t\n"  // Configure steam ready
-         :
-         :[idx_base_addr]"r"(idx_base_addr), [idx_granularity]"r"(idx_granularity),
-         [val_base_addr]"r"(val_base_addr), [val_granularity]"r"(val_granularity)
-      );
-   }
-#endif
-#ifdef PTTIME 
-   #pragma omp parallel for schedule(static, m / numThreads)
-#endif
    // spmm    
-   for (INDEXTYPE i = 0; i < m; i++) {
-//     printf("i = %ld\n", i);
+   INDEXTYPE offset_begin = *pntrb;
+   INDEXTYPE offset_end = *pntre;
 #ifdef PSP
-     INDEXTYPE offset_begin = pntrb[i];
-     INDEXTYPE offset_end = pntre[i];
+   if (offset_begin < offset_end) {
      __asm__ volatile (
          "stream.input.offset.begin  $0, %[offset_begin] \t\n" // Input stream (offset_begin)
          "stream.input.offset.end  $0, %[offset_end] \t\n"  // Input stream (offset_end)
          "stream.input.ready  $0 \t\n"  // Input stream ready
          :
          :[offset_begin]"r"(offset_begin), [offset_end]"r"(offset_end)
-      );
-#endif
-      for (INDEXTYPE j=pntrb[i]; j < pntre[i]; j++) {
-		 //if(i==0){
-			// printf("c[%ld*%ld] += val[%ld]*b[indx[%ld]*%ld]\n", i,ldc,j,j, ldb);
-			//intf("k = %ld\n", k);
-			//intf("c[%ld*%ld] += val[%ld]*b[%ld*%ld]\n", i,ldc,j,indx[j], ldb);
-		 //}
-         for (INDEXTYPE kk=0; kk < k; kk++)
-            c[i*ldc+kk] += (val[j]*b[indx[j]*ldb+kk]);
-      }
-   }
-#ifdef PSP
-#ifdef PTTIME 
-   #pragma omp parallel for schedule(static)
-#endif
-   for (INDEXTYPE i = 0; i < numThreads; i++) {
-      __asm__ volatile (
-          "stream.terminate $0 \t\n"
-      );
+     );
    }
 #endif
+   for (INDEXTYPE j=offset_begin; j < offset_end; j++) {
+//     printf("&b: %x, indx: %lu, offset_begin: %lu, offset_end: %lu.\n", &b[indx[j] * ldb], indx[j], j, offset_end);
+     for (INDEXTYPE kk=0; kk < k; kk++)
+       c[kk] += (val[j]*b[indx[j]*ldb+kk]);
+   }
 
    return 0;
 }
@@ -170,11 +119,6 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  //printf("pntrb[0] = %lu\n" ,pntrb[0]);
-  //printf("pntrb[1] = %lu\n" ,pntrb[1]);
-  //printf("pntrb[2] = %lu\n" ,pntrb[2]);
-  //printf("pntrb[3] = %lu\n" ,pntrb[3]);
-
   // pntre from file
   FILE* fp_mtx3 = fopen("../dataset/graph/harvard/harvard_pntre.dat", "rb");
 
@@ -193,11 +137,6 @@ int main(int argc, char **argv) {
     printf("Cannot find harvard_pntre.dat\n");
     return 0;
   }
-
-  //printf("pntre[0] = %lu\n" ,pntre[0]);
-  //printf("pntre[1] = %lu\n" ,pntre[1]);
-  //printf("pntre[2] = %lu\n" ,pntre[2]);
-  //printf("pntre[3] = %lu\n" ,pntre[3]);
 
   // b alloc
   VALUETYPE* b = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  num_node*dim_vector_hvd * sizeof(VALUETYPE));
@@ -279,9 +218,45 @@ int main(int argc, char **argv) {
   gf_reset_stats();
 #endif
 
-  for (uint64_t i = 0; i < num_iter; i++) {
-	  trusted_spmm_csr(m, k, val, indx, pntrb, pntre, b, ldb, c, ldc, numThreads);
+#ifdef PSP
+#ifdef PTTIME 
+   #pragma omp parallel for schedule(static)
+#endif
+  for (uint64_t i = 0; i < numThreads; i++) {
+    INDEXTYPE* idx_base_addr = indx;
+    uint64_t idx_granularity = sizeof(INDEXTYPE);
+    VALUETYPE* val_base_addr = b;
+    uint64_t val_granularity = k * sizeof(VALUETYPE);
+    __asm__ volatile (
+        "stream.cfg.idx.base  $0, %[idx_base_addr] \t\n"    // Configure stream (base address of index)
+        "stream.cfg.idx.gran  $0, %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
+        "stream.cfg.val.base  $0, %[val_base_addr] \t\n"    // Configure stream (base address of value)
+        "stream.cfg.val.gran  $0, %[val_granularity] \t\n"  // Configure stream (access granularity of value)
+        "stream.cfg.ready $0 \t\n"  // Configure steam ready
+        :
+        :[idx_base_addr]"r"(idx_base_addr), [idx_granularity]"r"(idx_granularity),
+        [val_base_addr]"r"(val_base_addr), [val_granularity]"r"(val_granularity)
+    );
   }
+#endif
+
+#ifdef PTTIME 
+   #pragma omp parallel for schedule(static)
+#endif
+  for (uint64_t i = 0; i < m; i++) {
+	  trusted_spmm_csr(k, val, indx, &pntrb[i], &pntre[i], b, ldb, &c[i*ldc], ldc);
+  }
+
+#ifdef PSP
+#ifdef PTTIME 
+   #pragma omp parallel for schedule(static)
+#endif
+  for (uint64_t i = 0; i < numThreads; i++) {
+    __asm__ volatile (
+        "stream.terminate $0 \t\n"
+    );
+  }
+#endif
 
 #ifdef GEM_FORGE
   gf_detail_sim_end();
