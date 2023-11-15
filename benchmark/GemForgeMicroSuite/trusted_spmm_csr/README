@@ -1,3 +1,4 @@
++========================================================================+
 Run "python split_dataset.py" and then it generate binary files as below
 	- harvard_b_mat.dat >> b
 	- harvard_cols.dat  >> cols -> indx 
@@ -40,4 +41,9 @@ example 2) harvard.mtx line 3 to 11
 		   pntre[0] = 8 -> end index of 1-th node in cols(indx)
 
 example 3) b_mat, val are randomized by 'np.random.rand()' in python code.
+
++========================================================================+
+Run "make_sm_table.py" and then it generate binary files as below
+This code generates the lookup table of sigmoid function for fast sigmoid operation.
+	- sm_table.dat
 
