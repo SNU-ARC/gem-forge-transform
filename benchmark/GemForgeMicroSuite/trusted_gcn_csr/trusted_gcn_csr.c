@@ -124,7 +124,7 @@ int main(int argc, char **argv) {
   srand(0);
 
   // indx from file
-  FILE* fp_mtx = fopen("../transform/benchmark/GemForgeMicroSuite/trusted_spmm_csr/dataset/harvard_rows.dat", "rb");
+  FILE* fp_mtx = fopen("../dataset/graph/harvard/harvard_rows.dat", "rb");
   INDEXTYPE* indx = (INDEXTYPE*) aligned_alloc(CACHE_LINE_SIZE,  file_size_indx_hvd * sizeof(INDEXTYPE));
   if (fp_mtx != NULL) {
     fseek(fp_mtx, 0L, SEEK_END);
@@ -135,6 +135,10 @@ int main(int argc, char **argv) {
     }
     fclose(fp_mtx);
   }
+  else {
+    printf("Cannot find harvard_row.dat\n");
+    return 0;
+  }
 
   //printf("indx[0] = %lu\n" ,indx[0]);
   //printf("indx[1] = %lu\n" ,indx[1]);
@@ -142,7 +146,7 @@ int main(int argc, char **argv) {
   //printf("indx[3] = %lu\n" ,indx[3]);
 
   // pntrb from file
-  FILE* fp_mtx2 = fopen("../transform/benchmark/GemForgeMicroSuite/trusted_spmm_csr/dataset/harvard_pntrb.dat", "rb");
+  FILE* fp_mtx2 = fopen("../dataset/graph/harvard/harvard_pntrb.dat", "rb");
 
   INDEXTYPE* pntrb = (INDEXTYPE*) aligned_alloc(CACHE_LINE_SIZE,  file_size_pntr_hvd * sizeof(INDEXTYPE));
 
@@ -155,6 +159,10 @@ int main(int argc, char **argv) {
     }
     fclose(fp_mtx2);
   }
+  else {
+    printf("Cannot find harvard_pntrb.dat\n");
+    return 0;
+  }
 
   //printf("pntrb[0] = %lu\n" ,pntrb[0]);
   //printf("pntrb[1] = %lu\n" ,pntrb[1]);
@@ -162,7 +170,7 @@ int main(int argc, char **argv) {
   //printf("pntrb[3] = %lu\n" ,pntrb[3]);
 
   // pntre from file
-  FILE* fp_mtx3 = fopen("../transform/benchmark/GemForgeMicroSuite/trusted_spmm_csr/dataset/harvard_pntre.dat", "rb");
+  FILE* fp_mtx3 = fopen("../dataset/graph/harvard/harvard_pntre.dat", "rb");
 
   INDEXTYPE* pntre = (INDEXTYPE*) aligned_alloc(CACHE_LINE_SIZE,  file_size_pntr_hvd * sizeof(INDEXTYPE));
 
@@ -175,6 +183,10 @@ int main(int argc, char **argv) {
     }
     fclose(fp_mtx3);
   }
+  else {
+    printf("Cannot find harvard_pntre.dat\n");
+    return 0;
+  }
 
   //printf("pntre[0] = %lu\n" ,pntre[0]);
   //printf("pntre[1] = %lu\n" ,pntre[1]);
@@ -186,17 +198,20 @@ int main(int argc, char **argv) {
   INDEXTYPE ldb = dim_vector_hvd;
 
   // b from file
-  FILE* fp_mtx4 = fopen("../transform/benchmark/GemForgeMicroSuite/trusted_spmm_csr/dataset/harvard_b_mat.dat", "rb");
+  FILE* fp_mtx4 = fopen("../dataset/graph/harvard/harvard_b_mat.dat", "rb");
 
   if (fp_mtx4 != NULL) {
     fseek(fp_mtx4, 0L, SEEK_END);
     uint64_t sz = ftell(fp_mtx4);
     fseek(fp_mtx4, 0L, SEEK_SET);
-    printf("sz = %lu\n", sz);
     if (sz == num_node*dim_vector_hvd * sizeof(VALUETYPE)) {
       fread((void*)b, sizeof(VALUETYPE), num_node*dim_vector_hvd, fp_mtx4);
     }
     fclose(fp_mtx4);
+  }
+  else {
+    printf("Cannot find harvard_b_mat.dat\n");
+    return 0;
   }
 
   //printf("b[0] = %f\n" ,b[0]);
