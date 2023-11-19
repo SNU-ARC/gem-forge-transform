@@ -17,7 +17,7 @@
 // yosong, 231016
 #define INDEXTYPE uint64_t
 #define VALUETYPE float
-static const uint64_t num_node			  = 500;
+static const uint64_t num_node			  = 15126;
 static const uint64_t num_edge_hvd        = 824617; 
 static const uint64_t file_size_indx_hvd  = 2*num_edge_hvd;
 static const uint64_t file_size_pntr_hvd  = num_node;
@@ -58,7 +58,7 @@ __attribute__((noinline)) Value trusted_spmm_csr (
    }
 #endif
    for (INDEXTYPE j=offset_begin; j < offset_end; j++) {
-//     printf("&b: %x, indx: %lu, offset_begin: %lu, offset_end: %lu.\n", &b[indx[j] * ldb], indx[j], j, offset_end);
+     printf("&b: %x, indx: %lu, offset_begin: %lu, offset_end: %lu.\n", &b[indx[j] * ldb], indx[j], j, offset_end);
      for (INDEXTYPE kk=0; kk < k; kk++)
        c[kk] += (val[j]*b[indx[j]*ldb+kk]);
    }
@@ -79,7 +79,7 @@ int main(int argc, char **argv) {
   srand(0);
 
   // indx from file
-  FILE* fp_mtx = fopen("../dataset/graph/California/California_rows.dat", "rb");
+  FILE* fp_mtx = fopen("../dataset/graph/harvard/harvard_rows.dat", "rb");
   INDEXTYPE* indx = (INDEXTYPE*) aligned_alloc(CACHE_LINE_SIZE,  file_size_indx_hvd * sizeof(INDEXTYPE));
   if (fp_mtx != NULL) {
     fseek(fp_mtx, 0L, SEEK_END);
@@ -91,7 +91,7 @@ int main(int argc, char **argv) {
     fclose(fp_mtx);
   }
   else {
-    printf("Cannot find California_row.dat\n");
+    printf("Cannot find harvard_row.dat\n");
     return 0;
   }
 
@@ -101,7 +101,7 @@ int main(int argc, char **argv) {
   //printf("indx[3] = %lu\n" ,indx[3]);
 
   // pntrb from file
-  FILE* fp_mtx2 = fopen("../dataset/graph/California/California_pntrb.dat", "rb");
+  FILE* fp_mtx2 = fopen("../dataset/graph/harvard/harvard_pntrb.dat", "rb");
 
   INDEXTYPE* pntrb = (INDEXTYPE*) aligned_alloc(CACHE_LINE_SIZE,  file_size_pntr_hvd * sizeof(INDEXTYPE));
 
@@ -115,12 +115,12 @@ int main(int argc, char **argv) {
     fclose(fp_mtx2);
   }
   else {
-    printf("Cannot find California_pntrb.dat\n");
+    printf("Cannot find harvard_pntrb.dat\n");
     return 0;
   }
 
   // pntre from file
-  FILE* fp_mtx3 = fopen("../dataset/graph/California/California_pntre.dat", "rb");
+  FILE* fp_mtx3 = fopen("../dataset/graph/harvard/harvard_pntre.dat", "rb");
 
   INDEXTYPE* pntre = (INDEXTYPE*) aligned_alloc(CACHE_LINE_SIZE,  file_size_pntr_hvd * sizeof(INDEXTYPE));
 
@@ -134,7 +134,7 @@ int main(int argc, char **argv) {
     fclose(fp_mtx3);
   }
   else {
-    printf("Cannot find California_pntre.dat\n");
+    printf("Cannot find harvard_pntre.dat\n");
     return 0;
   }
 
@@ -143,7 +143,7 @@ int main(int argc, char **argv) {
   INDEXTYPE ldb = dim_vector_hvd;
 
   // b from file
-  FILE* fp_mtx4 = fopen("../dataset/graph/California/California_b_mat.dat", "rb");
+  FILE* fp_mtx4 = fopen("../dataset/graph/harvard/harvard_b_mat.dat", "rb");
 
   if (fp_mtx4 != NULL) {
     fseek(fp_mtx4, 0L, SEEK_END);
@@ -155,7 +155,7 @@ int main(int argc, char **argv) {
     fclose(fp_mtx4);
   }
   else {
-    printf("Cannot find California_b_mat.dat\n");
+    printf("Cannot find harvard_b_mat.dat\n");
     return 0;
   }
 
@@ -168,7 +168,7 @@ int main(int argc, char **argv) {
   VALUETYPE* val = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  nonzero * sizeof(VALUETYPE));
   
   // val from file
-  FILE* fp_mtx5 = fopen("../dataset/graph/California/California_val.dat", "rb");
+  FILE* fp_mtx5 = fopen("../dataset/graph/harvard/harvard_val.dat", "rb");
 
   if (fp_mtx5 != NULL) {
     fseek(fp_mtx5, 0L, SEEK_END);
@@ -180,7 +180,7 @@ int main(int argc, char **argv) {
     fclose(fp_mtx5);
   }
   else {
-    printf("Cannot find California_val.dat\n");
+    printf("Cannot find harvard_val.dat\n");
     return 0;
   }
 
