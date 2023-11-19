@@ -30,7 +30,7 @@ typedef float Value;
 static uint64_t num_vector;
 static uint64_t dim_vector;
 static uint64_t num_leaf = 100;
-static uint64_t num_iter = 20;
+static uint64_t num_iter = 100;
 static uint64_t file_size;
 
 __attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* C, uint64_t* index_queue, uint64_t index_granularity, uint64_t value_granularity, int numThreads) {
@@ -75,7 +75,7 @@ __attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* 
 
   for (uint64_t i = offset_begin; i < offset_end; i++) {
     uint64_t idx = *(index_queue + i);
-//    printf("[%luth iter] &A: %x, &B: %x.\n", i, &A[idx * dim_vector], &B[idx * dim_vector]);
+//    printf("[%luth iter] &A: %#x, &B: %#x, indx: %lu.\n", i, &A[idx * dim_vector], &B[idx * dim_vector], idx);
     for (uint64_t j = 0; j < dim_vector; j++) {
       C[idx * dim_vector + j] = A[idx * dim_vector + j] * B[idx * dim_vector + j];
     }
