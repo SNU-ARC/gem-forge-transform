@@ -4,9 +4,9 @@ import numpy as np
 dim_vector_hvd      = 128;
 
 # fixed configuration from harvard.mtx
-filename            = "./California.mtx"
-num_node			= 9664;
-num_edge_hvd        = 16150; 
+filename            = "./cs4.mtx"
+num_node			= 22499;
+num_edge_hvd        = 43858; 
 nonzero             = 2*num_edge_hvd;
 
 pairs = {} 
@@ -60,24 +60,54 @@ c_pntre = 0
 
 p_pntrb = 0 
 p_pntre = 0 
-for key, value in sorted_pairs_items:
-    #print("key = " + str(key) + ": value = " + str(value))
-	# initial
-	if p_pntre == 0:		
-		c_pntrb = 0
-	else:
-		c_pntrb = p_pntre
 
-	c_pntre = c_pntrb + len(value)
+iter = 0
+for i in range(num_node):
+    if p_pntre == 0:
+        c_pntrb = 0
+    else:
+        c_pntrb = p_pntre
 
-	for v in value:
-		rows.append(v)
-		cols.append(key)
-	pntrb.append(c_pntrb)
-	pntre.append(c_pntre)
-	
-	p_pntrb = c_pntrb
-	p_pntre = c_pntre
+    key = sorted_pairs_items[iter][0]
+    if key != i:
+        c_pntre = p_pntre
+        continue
+    else:
+        value = sorted_pairs_items[iter][1]
+        iter += 1
+        c_pntre = c_pntrb + len(value)
+        
+        for v in value:
+            rows.append(v)
+            cols.append(key)
+        
+        pntrb.append(c_pntrb)
+        pntre.append(c_pntre)
+
+        p_pntrb = c_pntrb
+        p_pntre = c_pntre
+
+
+
+#    print(sorted_pairs_items[i][0])
+#for key, value in sorted_pairs_items:
+#    #print("key = " + str(key) + ": value = " + str(value))
+#	# initial
+#	if p_pntre == 0:		
+#		c_pntrb = 0
+#	else:
+#		c_pntrb = p_pntre
+#
+#	c_pntre = c_pntrb + len(value)
+#
+#	for v in value:
+#		rows.append(v)
+#		cols.append(key)
+#	pntrb.append(c_pntrb)
+#	pntre.append(c_pntre)
+#	
+#	p_pntrb = c_pntrb
+#	p_pntre = c_pntre
 
 		
 rows_np = np.array(rows, dtype=np.uint64)
@@ -97,11 +127,10 @@ print(len(pntre))
 #for ii in [451, 452, 453,454,455,456,457]:
 #	print(str(pntrb[ii]) + ":" + str(pntre[ii]))
 #print(len(sorted_pairs.values()))
-	
-with open('California_rows.dat', 'wb') as fp:
+with open('cs4_rows.dat', 'wb') as fp:
     rows_np.tofile(fp, format='uint64')
 
-with open('California_cols.dat', 'wb') as fp:
+with open('cs4_cols.dat', 'wb') as fp:
     cols_np.tofile(fp, format='uint64')
 
 #print(len(cols_np_unique))
@@ -112,22 +141,28 @@ with open('California_cols.dat', 'wb') as fp:
 pntrb_np = np.array(pntrb, dtype=np.uint64)
 pntre_np = np.array(pntre, dtype=np.uint64)
 
-with open('California_pntrb.dat', 'wb') as fp:
+#print(sorted_pairs_items)
+#print(rows_np)
+#print(cols_np)
+#print(pntrb_np)
+#print(pntre_np)
+	
+with open('cs4_pntrb.dat', 'wb') as fp:
     pntrb_np.tofile(fp, format='uint64')
 
-with open('California_pntre.dat', 'wb') as fp:
+with open('cs4_pntre.dat', 'wb') as fp:
     pntre_np.tofile(fp, format='uint64')
 
 # write rand_val
 ## random generation
 rand_val = np.random.rand(nonzero).astype('f');
-with open('California_val.dat', 'wb') as fp:
+with open('cs4_val.dat', 'wb') as fp:
     rand_val.tofile(fp, format='float')
 
 ## random generation
 rand_b_mat = np.random.rand(num_node*dim_vector_hvd).astype('f');
 print(rand_b_mat[0])
-with open('California_b_mat.dat', 'wb') as fp:
+with open('cs4_b_mat.dat', 'wb') as fp:
     rand_b_mat.tofile(fp, format='float')
 
 
