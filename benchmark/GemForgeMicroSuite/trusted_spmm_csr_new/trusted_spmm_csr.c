@@ -10,9 +10,12 @@
 #include <getopt.h>
 #include <assert.h>
 #include <stdint.h>
+#include <time.h>
+
 
 #include <omp.h>
 #include "immintrin.h"
+
 
 // yosong, 231016
 #define INDEXTYPE uint64_t
@@ -20,46 +23,41 @@
 static const uint64_t num_iter			  = 1;
 //#define CHECK
 
-//#define PSP
+#define PTTIME
+#define PSP
 
 typedef float Value;
 
 // yosong
-//__attribute__((noinline)) void truested_gcn_csr 
-__attribute__((noinline)) Value truested_gcn_csr 
-(
-//   const char tkern,       // kernel variations
-   const INDEXTYPE m,      // rows of A 
-//   const INDEXTYPE n,      // rows of B
+__attribute__((noinline)) Value trusted_spmm_csr (
    const INDEXTYPE k,      // dimension: col of A and B
-//   const VALUETYPE alpha,  // not used yet  
-//   const INDEXTYPE nnz,    // nonzeros  
-//   const INDEXTYPE rows,   // number of rows for sparse matrix 
-//   const INDEXTYPE cols,   // number of columns for sparse matrix 
-//   const VALUETYPE *val,   // NNZ value  
+   const VALUETYPE *val,   // NNZ value  
    const INDEXTYPE *indx,  // colids -> column indices 
    const INDEXTYPE *pntrb, // starting index for rowptr
    const INDEXTYPE *pntre, // ending index for rowptr
-//   const VALUETYPE *a,     // Dense A (X) matrix
-//   const INDEXTYPE lda,    // leading dimension of A (col size since A row-major)  
    const VALUETYPE *b,     // Dense B matrix
    const INDEXTYPE ldb,    // leading dimension of B (col size since B row-major)  
-//   const VALUETYPE beta,   // beta value 
    VALUETYPE *c,           // Dense matrix c
    const INDEXTYPE ldc     // leading dimension of c (col size since C row-major) 
-)
-{
-#ifdef PTTIME 
-   #pragma omp parallel for
+) {
+   // spmm    
+   INDEXTYPE offset_begin = *pntrb;
+   INDEXTYPE offset_end = *pntre;
+#ifdef PSP
+   if (offset_begin < offset_end) {
+     __asm__ volatile (
+         "stream.input.offset.begin  $0, %[offset_begin] \t\n" // Input stream (offset_begin)
+         "stream.input.offset.end  $0, %[offset_end] \t\n"  // Input stream (offset_end)
+         "stream.input.ready  $0 \t\n"  // Input stream ready
+         :
+         :[offset_begin]"r"(offset_begin), [offset_end]"r"(offset_end)
+     );
+   }
 #endif
-   // gcn   
-   for (INDEXTYPE i = 0; i < m; i++)
-   {
-      for (INDEXTYPE j=pntrb[i]; j < pntre[i]; j++)
-      {
-         for (INDEXTYPE kk=0; kk < k; kk++)
-            c[i*ldc+kk] += b[indx[j]*ldb+kk];
-      }
+   for (INDEXTYPE j=offset_begin; j < offset_end; j++) {
+     printf("&b: %x, indx: %lu, offset_begin: %lu, offset_end: %lu.\n", &b[indx[j] * ldb], indx[j], j, offset_end);
+     for (INDEXTYPE kk=0; kk < k; kk++)
+       c[kk] += (val[j]*b[indx[j]*ldb+kk]);
    }
 
    return 0;
@@ -88,7 +86,6 @@ int main(int argc, char **argv) {
   uint64_t num_node;
   uint64_t total_num_node;
   uint64_t num_dim;
-
 
   strcpy(input_path,argv[2]);
   ptr = strrchr(input_path, '/');
@@ -243,6 +240,42 @@ int main(int argc, char **argv) {
   //printf("pntre[2] = %lu\n" ,pntre[2]);
   //printf("pntre[3] = %lu\n" ,pntre[3]);
   // ===============================================================================//
+
+
+  // ===============================================================================//
+  // val alloc
+  VALUETYPE* val = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  nonzero * sizeof(VALUETYPE));
+  
+  // val from file
+  strcpy(filename, dataset_path);
+  strcat(filename, "_val.dat");
+  printf("file name = %s\n", filename);
+  FILE* fp_mtx5 = fopen(filename, "rb");
+
+  if (fp_mtx5 != NULL) {
+    fseek(fp_mtx5, 0L, SEEK_END);
+    uint64_t sz = ftell(fp_mtx5);
+    fseek(fp_mtx5, 0L, SEEK_SET);
+    if (sz == nonzero * sizeof(VALUETYPE)) {
+      fread((void*)val, sizeof(VALUETYPE), nonzero, fp_mtx5);
+    }
+    else {
+        printf("size of file(%s) is wrong\n", filename);
+        return 0;
+    }
+    fclose(fp_mtx5);
+  }
+  else {
+    printf("Cannot find %s\n", filename);
+    return 0;
+  }
+
+  //printf("val[0] = %f\n" ,val[0]);
+  //printf("val[1] = %f\n" ,val[1]);
+  //printf("val[2] = %f\n" ,val[2]);
+  //printf("val[3] = %f\n" ,val[3]);
+  // ===============================================================================//
+
   // c alloc
   VALUETYPE* c = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  total_num_node*num_dim * sizeof(VALUETYPE));
   INDEXTYPE ldc = num_dim;
@@ -266,14 +299,49 @@ int main(int argc, char **argv) {
 //  }
 #endif
 
-
 #ifdef GEM_FORGE
   gf_reset_stats();
 #endif
 
-  for (uint64_t i = 0; i < num_iter; i++) {
-	  truested_gcn_csr(m, k, indx, pntrb, pntre, b, ldb, c, ldc);
+#ifdef PSP
+#ifdef PTTIME 
+   #pragma omp parallel for schedule(static)
+#endif
+  for (uint64_t i = 0; i < numThreads; i++) {
+    INDEXTYPE* idx_base_addr = indx;
+    uint64_t idx_granularity = sizeof(INDEXTYPE);
+    VALUETYPE* val_base_addr = b;
+    uint64_t val_granularity = k * sizeof(VALUETYPE);
+    __asm__ volatile (
+        "stream.cfg.idx.base  $0, %[idx_base_addr] \t\n"    // Configure stream (base address of index)
+        "stream.cfg.idx.gran  $0, %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
+        "stream.cfg.val.base  $0, %[val_base_addr] \t\n"    // Configure stream (base address of value)
+        "stream.cfg.val.gran  $0, %[val_granularity] \t\n"  // Configure stream (access granularity of value)
+        "stream.cfg.ready $0 \t\n"  // Configure steam ready
+        :
+        :[idx_base_addr]"r"(idx_base_addr), [idx_granularity]"r"(idx_granularity),
+        [val_base_addr]"r"(val_base_addr), [val_granularity]"r"(val_granularity)
+    );
   }
+#endif
+
+#ifdef PTTIME 
+   #pragma omp parallel for schedule(static)
+#endif
+  for (uint64_t i = 0; i < m; i++) {
+	  trusted_spmm_csr(k, val, indx, &pntrb[i], &pntre[i], b, ldb, &c[i*ldc], ldc);
+  }
+
+#ifdef PSP
+#ifdef PTTIME 
+   #pragma omp parallel for schedule(static)
+#endif
+  for (uint64_t i = 0; i < numThreads; i++) {
+    __asm__ volatile (
+        "stream.terminate $0 \t\n"
+    );
+  }
+#endif
 
 #ifdef GEM_FORGE
   gf_detail_sim_end();
@@ -299,6 +367,7 @@ int main(int argc, char **argv) {
   //free(C1);
 #endif
 
+  free(val);
   free(indx);
   free(pntrb);
   free(pntre);
