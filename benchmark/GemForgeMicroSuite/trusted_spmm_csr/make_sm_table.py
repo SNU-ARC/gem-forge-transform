@@ -12,8 +12,8 @@ for idx in range(0,sm_table_size):
 	sm_table.append(sm_value);
 	print(sm_value)
 
-sm_table_np = np.array(sm_table, dtype=np.uint64)
+sm_table_np = np.array(sm_table, dtype=np.float32);
 with open('sm_table.dat', 'wb') as fp:
-    sm_table_np.tofile(fp, format='uint64')
+    sm_table_np.tofile(fp, format='float')
 
 

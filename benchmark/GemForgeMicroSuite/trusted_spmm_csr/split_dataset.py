@@ -3,11 +3,9 @@ import numpy as np
 # configuratin
 dim_vector_hvd      = 128;
 
-# fixed configuration from harvard.mtx
+# fixed configuration from cs4.mtx
 filename            = "./cs4.mtx"
-num_node			= 22499;
-num_edge_hvd        = 43858; 
-nonzero             = 2*num_edge_hvd;
+prefix              = "cs4_"
 
 pairs = {} 
 count_nnz = 0;
@@ -19,7 +17,7 @@ with open(filename, 'r') as fp:
 			line = line.split('\n');
 			item_list = line[0].split(' ')
 			if len(item_list) == 3 :
-				M = item_list[0] 
+				M = int(item_list[0])
 				N = item_list[1]
 				NNZ = item_list[2]
 			else:
@@ -30,21 +28,25 @@ with open(filename, 'r') as fp:
 					res = []
 					res.append(col)
 					pairs[row] = res
+					count_nnz += 1
 				else:					
 					if col not in res:
 						res.append(col)
 						pairs[row] = res
+						count_nnz += 1
 				# sym
 				res = pairs.get(col, 'NONE')
 				if res  == 'NONE':
 					res = []
 					res.append(row)
 					pairs[col] = res
+					count_nnz += 1
 				else:					
 					if row not in res:
 						res.append(row)
 						pairs[col] = res
-				count_nnz += 1
+						count_nnz += 1
+
 
 #print(len(pairs.keys()))
 sorted_pairs = dict(sorted(pairs.items()))
@@ -118,6 +120,7 @@ cols_np = np.array(cols, dtype=np.uint64)
 
 #for ii in cols:	
 #	print(ii)
+print('count_nnz={}\n'.format(count_nnz))
 print(max(rows))
 print(max(cols))
 print(len(cols))
@@ -127,10 +130,16 @@ print(len(pntre))
 #for ii in [451, 452, 453,454,455,456,457]:
 #	print(str(pntrb[ii]) + ":" + str(pntre[ii]))
 #print(len(sorted_pairs.values()))
-with open('cs4_rows.dat', 'wb') as fp:
+print(len(rows_np))
+rows_np = np.insert(rows_np, 0, count_nnz);
+rows_np = np.insert(rows_np, 0, M);
+print(len(rows_np))
+print(rows_np[0])
+
+with open(prefix+'rows.dat', 'wb') as fp:
     rows_np.tofile(fp, format='uint64')
 
-with open('cs4_cols.dat', 'wb') as fp:
+with open(prefix+'cols.dat', 'wb') as fp:
     cols_np.tofile(fp, format='uint64')
 
 #print(len(cols_np_unique))
@@ -141,28 +150,36 @@ with open('cs4_cols.dat', 'wb') as fp:
 pntrb_np = np.array(pntrb, dtype=np.uint64)
 pntre_np = np.array(pntre, dtype=np.uint64)
 
-#print(sorted_pairs_items)
-#print(rows_np)
-#print(cols_np)
-#print(pntrb_np)
-#print(pntre_np)
-	
-with open('cs4_pntrb.dat', 'wb') as fp:
+
+#for ii in range(0,len(pntrb_np)):	
+#	print(pntre_np[ii] - pntrb_np[ii])
+
+with open(prefix+'pntrb.dat', 'wb') as fp:
     pntrb_np.tofile(fp, format='uint64')
 
-with open('cs4_pntre.dat', 'wb') as fp:
+with open(prefix+'pntre.dat', 'wb') as fp:
     pntre_np.tofile(fp, format='uint64')
 
 # write rand_val
 ## random generation
-rand_val = np.random.rand(nonzero).astype('f');
-with open('cs4_val.dat', 'wb') as fp:
+rand_val = np.random.rand(count_nnz).astype('f');
+with open(prefix+'val.dat', 'wb') as fp:
     rand_val.tofile(fp, format='float')
 
 ## random generation
-rand_b_mat = np.random.rand(num_node*dim_vector_hvd).astype('f');
-print(rand_b_mat[0])
-with open('cs4_b_mat.dat', 'wb') as fp:
-    rand_b_mat.tofile(fp, format='float')
+rand_b_mat = np.random.rand(M*dim_vector_hvd).astype('f');
+print(len(rand_b_mat));
+print(type(rand_b_mat));
+#rand_b_mat = np.insert(rand_b_mat, 0, float(dim_vector_hvd));
+print(len(rand_b_mat));
+print('rand_b_mat[0] = {}'.format(rand_b_mat[0]))
+with open(prefix+'b_mat.dat', 'wb') as fp:
+	dim_vec = np.array([dim_vector_hvd], dtype=np.uint64);
+	dim_vec.tofile(fp, format='uint64')
+	rand_b_mat.tofile(fp, format='float')
 
-
+## random generation
+rand_a_mat = np.random.rand(M*dim_vector_hvd).astype('f');
+#print(rand_a_mat[0])
+with open(prefix+'a_mat.dat', 'wb') as fp:
+    rand_a_mat.tofile(fp, format='float')
