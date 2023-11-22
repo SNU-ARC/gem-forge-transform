@@ -4,10 +4,10 @@ import numpy as np
 dim_vector_hvd      = 128;
 
 # fixed configuration from harvard.mtx
-filename            = "./harvard.mtx"
-num_node			= 15126;
-num_edge_hvd        = 824617; 
-nonzero             = 1649234;
+filename            = "./California.mtx"
+num_node			= 9664;
+num_edge_hvd        = 16150; 
+nonzero             = 2*num_edge_hvd;
 
 pairs = {} 
 count_nnz = 0;
@@ -98,10 +98,10 @@ print(len(pntre))
 #	print(str(pntrb[ii]) + ":" + str(pntre[ii]))
 #print(len(sorted_pairs.values()))
 	
-with open('harvard_rows.dat', 'wb') as fp:
+with open('California_rows.dat', 'wb') as fp:
     rows_np.tofile(fp, format='uint64')
 
-with open('harvard_cols.dat', 'wb') as fp:
+with open('California_cols.dat', 'wb') as fp:
     cols_np.tofile(fp, format='uint64')
 
 #print(len(cols_np_unique))
@@ -112,22 +112,22 @@ with open('harvard_cols.dat', 'wb') as fp:
 pntrb_np = np.array(pntrb, dtype=np.uint64)
 pntre_np = np.array(pntre, dtype=np.uint64)
 
-with open('harvard_pntrb.dat', 'wb') as fp:
+with open('California_pntrb.dat', 'wb') as fp:
     pntrb_np.tofile(fp, format='uint64')
 
-with open('harvard_pntre.dat', 'wb') as fp:
+with open('California_pntre.dat', 'wb') as fp:
     pntre_np.tofile(fp, format='uint64')
 
 # write rand_val
 ## random generation
 rand_val = np.random.rand(nonzero).astype('f');
-with open('harvard_val.dat', 'wb') as fp:
+with open('California_val.dat', 'wb') as fp:
     rand_val.tofile(fp, format='float')
 
 ## random generation
 rand_b_mat = np.random.rand(num_node*dim_vector_hvd).astype('f');
 print(rand_b_mat[0])
-with open('harvard_b_mat.dat', 'wb') as fp:
+with open('California_b_mat.dat', 'wb') as fp:
     rand_b_mat.tofile(fp, format='float')
 
 
