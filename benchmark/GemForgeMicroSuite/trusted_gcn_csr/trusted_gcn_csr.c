@@ -17,58 +17,12 @@
 // yosong, 231016
 #define INDEXTYPE uint64_t
 #define VALUETYPE float
-static const uint64_t num_node			  = 15126;
-static const uint64_t num_edge_hvd        = 824617; 
-static const uint64_t file_size_indx_hvd  = 2*num_edge_hvd;
-static const uint64_t file_size_pntr_hvd  = num_node;
-static const uint64_t dim_vector_hvd      = 128;
-static const uint64_t nonzero             = 1649234;
 static const uint64_t num_iter			  = 1;
 //#define CHECK
 
 //#define PSP
 
 typedef float Value;
-
-// Turn off Cache warm-up by default, because it is not our assumption
-//#define WARM_CACHE
-
-//__attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* C, uint64_t* index_queue, uint64_t index_granularity, uint64_t value_granularity, int numThreads) {
-////  #pragma omp parallel for schedule(static, file_size / numThreads) //firstprivate(A, B, C)
-//
-//#ifdef PSP
-//  // Editor: K16DIABLO (Sungjun Jung)
-//  // Example assembly for programmable stream prefetching
-//  uint64_t offset_begin = 0;
-//  uint64_t offset_end = num_leaf;
-//  __asm__ volatile (
-//      "stream.cfg.idx.base  $0, %[idx_base_addr] \t\n"    // Configure stream (base address of index)
-//      "stream.cfg.idx.gran  $0, %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
-//      "stream.cfg.val.base  $0, %[val_base_addr] \t\n"    // Configure stream (base address of value)
-//      "stream.cfg.val.gran  $0, %[val_granularity] \t\n"  // Configure stream (access granularity of value)
-//      "stream.input.offset.begin  $0, %[offset_begin] \t\n" // Input stream (offset_begin)
-//      "stream.input.offset.end  $0, %[offset_end] \t\n"  // Input stream (offset_end)
-//      :
-//      :[idx_base_addr]"r"(index_queue), [idx_granularity]"r"(index_granularity),
-//      [val_base_addr]"r"(A), [val_granularity]"r"(value_granularity),
-//      [offset_begin]"r"(offset_begin), [offset_end]"r"(offset_end)
-//  );
-//#endif
-//
-//  for (uint64_t i = 0; i < num_leaf; i++) {
-//    uint64_t idx = *(index_queue + i);
-//    for (uint64_t j = 0; j < dim_vector; j++) {
-//      C[idx + j] = A[idx + j] * B[idx + j];
-//    }
-//  }
-//
-//#ifdef PSP
-//  __asm__ volatile (
-//      "stream.terminate $0 \t\n"
-//  );
-//#endif
-//  return 0;
-//}
 
 // yosong
 //__attribute__((noinline)) void truested_gcn_csr 
@@ -123,44 +77,132 @@ int main(int argc, char **argv) {
   omp_set_schedule(omp_sched_static, 0);
   srand(0);
 
+  char *ptr = NULL;
+  char dataset_path[256] = "";
+  char dataset_name[256] = "";
+  char filename[100];
+  char input_path[256] = "";
+
+  uint64_t nonzero;
+  uint64_t sz;
+  uint64_t num_node;
+  uint64_t total_num_node;
+  uint64_t num_dim;
+
+
+  strcpy(input_path,argv[2]);
+  ptr = strrchr(input_path, '/');
+  if(ptr==NULL){
+  	strcpy(dataset_name,input_path);
+  }
+  else{
+	strcpy(dataset_name,ptr+1);
+  }
+  //printf("dataset_name = %s\n",dataset_name); 
+  strcpy(dataset_path, input_path);
+  //printf("dataset_path = %s\n", dataset_path);
+  strcat(dataset_path, "/");
+  printf("dataset_path = %s\n", dataset_path);
+  strcat(dataset_path, dataset_name);
+
+  // ===============================================================================//
   // indx from file
-  FILE* fp_mtx = fopen("../dataset/graph/harvard/harvard_rows.dat", "rb");
-  INDEXTYPE* indx = (INDEXTYPE*) aligned_alloc(CACHE_LINE_SIZE,  file_size_indx_hvd * sizeof(INDEXTYPE));
+  strcpy(filename, dataset_path);
+  strcat(filename, "_rows.dat");
+  printf("file name = %s\n", filename);
+
+  FILE* fp_mtx = fopen(filename, "rb");
   if (fp_mtx != NULL) {
     fseek(fp_mtx, 0L, SEEK_END);
-    uint64_t sz = ftell(fp_mtx);
+    sz = ftell(fp_mtx);
     fseek(fp_mtx, 0L, SEEK_SET);
-    if (sz == file_size_indx_hvd * sizeof(INDEXTYPE)) {
-      fread((void*)indx, sizeof(INDEXTYPE), file_size_indx_hvd, fp_mtx);
-    }
-    fclose(fp_mtx);
+	fread((void*)&total_num_node, sizeof(INDEXTYPE), 1, fp_mtx);	
+	fread((void*)&nonzero, sizeof(INDEXTYPE), 1, fp_mtx);	
   }
   else {
-    printf("Cannot find harvard_row.dat\n");
+    printf("Cannot find %s\n", filename);
     return 0;
   }
+
+  //printf("nonzero = %d, total_num_node = %d\n",nonzero, total_num_node);
+  INDEXTYPE* indx = (INDEXTYPE*) aligned_alloc(CACHE_LINE_SIZE,  nonzero * sizeof(INDEXTYPE));
+
+  if (sz == (nonzero+2) * sizeof(INDEXTYPE)) {
+    fread((void*)indx, sizeof(INDEXTYPE), nonzero, fp_mtx);
+  }
+  else {
+	  printf("size of file(%s) is wrong\n", filename);
+	  return 0;
+  }
+  fclose(fp_mtx);
 
   //printf("indx[0] = %lu\n" ,indx[0]);
   //printf("indx[1] = %lu\n" ,indx[1]);
   //printf("indx[2] = %lu\n" ,indx[2]);
   //printf("indx[3] = %lu\n" ,indx[3]);
+  // ===============================================================================//
 
-  // pntrb from file
-  FILE* fp_mtx2 = fopen("../dataset/graph/harvard/harvard_pntrb.dat", "rb");
 
-  INDEXTYPE* pntrb = (INDEXTYPE*) aligned_alloc(CACHE_LINE_SIZE,  file_size_pntr_hvd * sizeof(INDEXTYPE));
-
+  // ===============================================================================//
+  // b from file
+  strcpy(filename, dataset_path);
+  strcat(filename, "_b_mat.dat");
+  printf("file name = %s\n", filename);
+  FILE* fp_mtx2 = fopen(filename, "rb");
   if (fp_mtx2 != NULL) {
     fseek(fp_mtx2, 0L, SEEK_END);
-    uint64_t sz = ftell(fp_mtx2);
+    sz = ftell(fp_mtx2);	
     fseek(fp_mtx2, 0L, SEEK_SET);
-    if (sz == file_size_pntr_hvd * sizeof(INDEXTYPE)) {
-      fread((void*)pntrb, sizeof(INDEXTYPE), file_size_pntr_hvd, fp_mtx2);
-    }
-    fclose(fp_mtx2);
+	fread((void*)&num_dim, sizeof(uint64_t), 1, fp_mtx2);	
+    //printf("sz = %d, num_dim = %d\n", sz, num_dim);
   }
   else {
-    printf("Cannot find harvard_pntrb.dat\n");
+    printf("Cannot find %s\n", filename);
+    return 0;
+  }
+
+  num_node = (sz-sizeof(uint64_t))/(sizeof(VALUETYPE)*num_dim);
+  //printf("sz = %d, num_dim = %d, num_node = %d\n", sz, num_dim, num_node);
+  VALUETYPE* b = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  num_node*num_dim * sizeof(VALUETYPE));
+  INDEXTYPE ldb = num_dim;
+  if (sz == (num_node*num_dim) * sizeof(VALUETYPE) + sizeof(uint64_t)) {
+    fread((void*)b, sizeof(VALUETYPE), num_node*num_dim, fp_mtx2);
+  }
+  else {
+      printf("size of file(%s) is wrong\n", filename);
+      return 0;
+  }
+  fclose(fp_mtx2);
+
+  //printf("b[0] = %f\n" ,b[0]);
+  //printf("b[1] = %f\n" ,b[1]);
+  //printf("b[2] = %f\n" ,b[2]);
+  //printf("b[3] = %f\n" ,b[3]);
+  // ===============================================================================//
+
+  // ===============================================================================//
+  // pntrb from file
+  strcpy(filename, dataset_path);
+  strcat(filename, "_pntrb.dat");
+  printf("file name = %s\n", filename);
+  FILE* fp_mtx3 = fopen(filename, "rb");
+  INDEXTYPE* pntrb = (INDEXTYPE*) aligned_alloc(CACHE_LINE_SIZE,  total_num_node * sizeof(INDEXTYPE));
+
+  if (fp_mtx3 != NULL) {
+    fseek(fp_mtx3, 0L, SEEK_END);
+    uint64_t sz = ftell(fp_mtx3);
+    fseek(fp_mtx3, 0L, SEEK_SET);
+    if (sz == total_num_node * sizeof(INDEXTYPE)) {
+      fread((void*)pntrb, sizeof(INDEXTYPE), total_num_node, fp_mtx3);
+    }
+    else {
+        printf("size of file(%s) is wrong\n", filename);
+        return 0;
+    }
+    fclose(fp_mtx3);
+  }
+  else {
+    printf("Cannot find %s\n", filename);
     return 0;
   }
 
@@ -168,23 +210,31 @@ int main(int argc, char **argv) {
   //printf("pntrb[1] = %lu\n" ,pntrb[1]);
   //printf("pntrb[2] = %lu\n" ,pntrb[2]);
   //printf("pntrb[3] = %lu\n" ,pntrb[3]);
+  // ===============================================================================//
 
+  // ===============================================================================//
   // pntre from file
-  FILE* fp_mtx3 = fopen("../dataset/graph/harvard/harvard_pntre.dat", "rb");
+  strcpy(filename, dataset_path);
+  strcat(filename, "_pntre.dat");
+  printf("file name = %s\n", filename);
+  FILE* fp_mtx4 = fopen(filename, "rb");
+  INDEXTYPE* pntre = (INDEXTYPE*) aligned_alloc(CACHE_LINE_SIZE,  total_num_node * sizeof(INDEXTYPE));
 
-  INDEXTYPE* pntre = (INDEXTYPE*) aligned_alloc(CACHE_LINE_SIZE,  file_size_pntr_hvd * sizeof(INDEXTYPE));
-
-  if (fp_mtx3 != NULL) {
-    fseek(fp_mtx3, 0L, SEEK_END);
-    uint64_t sz = ftell(fp_mtx3);
-    fseek(fp_mtx3, 0L, SEEK_SET);
-    if (sz == file_size_pntr_hvd * sizeof(INDEXTYPE)) {
-      fread((void*)pntre, sizeof(INDEXTYPE), file_size_pntr_hvd, fp_mtx3);
+  if (fp_mtx4 != NULL) {
+    fseek(fp_mtx4, 0L, SEEK_END);
+    uint64_t sz = ftell(fp_mtx4);
+    fseek(fp_mtx4, 0L, SEEK_SET);
+    if (sz == total_num_node * sizeof(INDEXTYPE)) {
+      fread((void*)pntre, sizeof(INDEXTYPE), total_num_node, fp_mtx4);
     }
-    fclose(fp_mtx3);
+    else {
+        printf("size of file(%s) is wrong\n", filename);
+        return 0;
+    }
+    fclose(fp_mtx4);
   }
   else {
-    printf("Cannot find harvard_pntre.dat\n");
+    printf("Cannot find %s\n", filename);
     return 0;
   }
 
@@ -192,41 +242,14 @@ int main(int argc, char **argv) {
   //printf("pntre[1] = %lu\n" ,pntre[1]);
   //printf("pntre[2] = %lu\n" ,pntre[2]);
   //printf("pntre[3] = %lu\n" ,pntre[3]);
-
-  // b alloc
-  VALUETYPE* b = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  num_node*dim_vector_hvd * sizeof(VALUETYPE));
-  INDEXTYPE ldb = dim_vector_hvd;
-
-  // b from file
-  FILE* fp_mtx4 = fopen("../dataset/graph/harvard/harvard_b_mat.dat", "rb");
-
-  if (fp_mtx4 != NULL) {
-    fseek(fp_mtx4, 0L, SEEK_END);
-    uint64_t sz = ftell(fp_mtx4);
-    fseek(fp_mtx4, 0L, SEEK_SET);
-    if (sz == num_node*dim_vector_hvd * sizeof(VALUETYPE)) {
-      fread((void*)b, sizeof(VALUETYPE), num_node*dim_vector_hvd, fp_mtx4);
-    }
-    fclose(fp_mtx4);
-  }
-  else {
-    printf("Cannot find harvard_b_mat.dat\n");
-    return 0;
-  }
-
-  //printf("b[0] = %f\n" ,b[0]);
-  //printf("b[1] = %f\n" ,b[1]);
-  //printf("b[2] = %f\n" ,b[2]);
-  //printf("b[3] = %f\n" ,b[3]);
-
-
+  // ===============================================================================//
   // c alloc
-  VALUETYPE* c = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  num_node*dim_vector_hvd * sizeof(VALUETYPE));
-  INDEXTYPE ldc = dim_vector_hvd;
+  VALUETYPE* c = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  total_num_node*num_dim * sizeof(VALUETYPE));
+  INDEXTYPE ldc = num_dim;
 
   // m, k
-  INDEXTYPE m = num_node;      // rows of A 
-  INDEXTYPE k = dim_vector_hvd;// dimension: col of A and B
+  INDEXTYPE m = total_num_node; // rows of A 
+  INDEXTYPE k = num_dim;	    // dimension: col of A and B
 
 #ifdef GEM_FORGE
   gf_detail_sim_start();
@@ -242,6 +265,7 @@ int main(int argc, char **argv) {
 //    volatile Value x = *A;
 //  }
 #endif
+
 
 #ifdef GEM_FORGE
   gf_reset_stats();
