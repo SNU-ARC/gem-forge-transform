@@ -20,6 +20,7 @@
 // yosong, 231016
 #define INDEXTYPE uint64_t
 #define VALUETYPE float
+
 static const uint64_t num_iter			  = 1;
 //#define CHECK
 
@@ -55,6 +56,7 @@ __attribute__((noinline)) Value trusted_spmm_csr (
    }
 #endif
    for (INDEXTYPE j=offset_begin; j < offset_end; j++) {
+
      //printf("&b: %x, indx: %lu, offset_begin: %lu, offset_end: %lu.\n", &b[indx[j] * ldb], indx[j], j, offset_end);
      for (INDEXTYPE kk=0; kk < k; kk++)
        c[kk] += (val[j]*b[indx[j]*ldb+kk]);
