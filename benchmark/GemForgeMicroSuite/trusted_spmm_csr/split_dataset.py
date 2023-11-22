@@ -62,24 +62,54 @@ c_pntre = 0
 
 p_pntrb = 0 
 p_pntre = 0 
-for key, value in sorted_pairs_items:
-    #print("key = " + str(key) + ": value = " + str(value))
-	# initial
-	if p_pntre == 0:		
-		c_pntrb = 0
-	else:
-		c_pntrb = p_pntre
 
-	c_pntre = c_pntrb + len(value)
+iter = 0
+for i in range(num_node):
+    if p_pntre == 0:
+        c_pntrb = 0
+    else:
+        c_pntrb = p_pntre
 
-	for v in value:
-		rows.append(v)
-		cols.append(key)
-	pntrb.append(c_pntrb)
-	pntre.append(c_pntre)
-	
-	p_pntrb = c_pntrb
-	p_pntre = c_pntre
+    key = sorted_pairs_items[iter][0]
+    if key != i:
+        c_pntre = p_pntre
+        continue
+    else:
+        value = sorted_pairs_items[iter][1]
+        iter += 1
+        c_pntre = c_pntrb + len(value)
+        
+        for v in value:
+            rows.append(v)
+            cols.append(key)
+        
+        pntrb.append(c_pntrb)
+        pntre.append(c_pntre)
+
+        p_pntrb = c_pntrb
+        p_pntre = c_pntre
+
+
+
+#    print(sorted_pairs_items[i][0])
+#for key, value in sorted_pairs_items:
+#    #print("key = " + str(key) + ": value = " + str(value))
+#	# initial
+#	if p_pntre == 0:		
+#		c_pntrb = 0
+#	else:
+#		c_pntrb = p_pntre
+#
+#	c_pntre = c_pntrb + len(value)
+#
+#	for v in value:
+#		rows.append(v)
+#		cols.append(key)
+#	pntrb.append(c_pntrb)
+#	pntre.append(c_pntre)
+#	
+#	p_pntrb = c_pntrb
+#	p_pntre = c_pntre
 
 		
 rows_np = np.array(rows, dtype=np.uint64)

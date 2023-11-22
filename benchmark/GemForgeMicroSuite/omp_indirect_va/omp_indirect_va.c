@@ -30,7 +30,7 @@ typedef float Value;
 static uint64_t num_vector;
 static uint64_t dim_vector;
 static uint64_t num_leaf = 100;
-static uint64_t num_iter = 100;
+static uint64_t num_iter = 10;
 static uint64_t file_size;
 
 __attribute__((noinline)) Value vector_addition_host(Value* A, Value* B, Value* C, uint64_t* index_queue, uint64_t index_granularity, uint64_t value_granularity, int numThreads) {
