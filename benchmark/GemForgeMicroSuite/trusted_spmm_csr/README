@@ -1,4 +1,10 @@
-+========================================================================+
+1. split_dataset.py
+2. make_sm_table.py
+3. igb_data_loader.py
+4. ogb_data_loader.py
+5. anns_data_loader.py
+
+ +111111111111111111111111111111111111111111111111111111111111111+
 Run "python split_dataset.py" and then it generate binary files as below
 	- harvard_b_mat.dat >> b
 	- harvard_cols.dat  >> cols -> indx 
@@ -12,12 +18,11 @@ Run "python split_dataset.py" and then it generate binary files as below
 1. dim_vector_hvd      = 128;
    -> dimention of feature vector.
 2. filename            = "./harvard.mtx"
-   -> mtx filename 
+   -> mtx filename
+   prefix              = "harvard_"
+   -> prefix of filenames, it must same as folder name 
 
-3. configuration from file
-num_node			= 15126;
-num_edge_hvd        = 824617; 
-nonzero             = 1649234;
+3. auto configuration from file
 
 + examples
 
@@ -42,8 +47,57 @@ example 2) harvard.mtx line 3 to 11
 
 example 3) b_mat, val are randomized by 'np.random.rand()' in python code.
 
-+========================================================================+
++222222222222222222222222222222222222222222222222222222222222222+
 Run "make_sm_table.py" and then it generate binary files as below
 This code generates the lookup table of sigmoid function for fast sigmoid operation.
 	- sm_table.dat
+
++333333333333333333333333333333333333333333333333333333333333333+
+Run "python igb_data_loader.py --dataset_size medium" and then it generate binary files as below
+	+igb_medium_0
+		+igb_medium_0_b_mat.dat
+        +igb_medium_0_pntrb.dat
+        +igb_medium_0_pntre.dat
+        +igb_medium_0_rows.dat
+        +igb_medium_0_val.dat
+	+igb_medium_1
+	+igb_medium_2
+	+igb_medium_3
+
+this 'igb_data_loader.py' must be placed in 'dataset' folder with 'medium' folder.
+
++444444444444444444444444444444444444444444444444444444444444444+
+Run "python ogb_data_loader.py" and then it generate binary files as below
+	+ogbn_papers100M_0
+		+ogbn-papers100M_0_b_mat.dat
+		+ogbn-papers100M_0_pntrb.dat
+		+ogbn-papers100M_0_pntre.dat
+		+ogbn-papers100M_0_rows.dat
+		+ogbn-papers100M_0_val.dat
+	+ogbn_papers100M_1
+	+ogbn_papers100M_2
+	+ogbn_papers100M_3
+
+this 'igb_data_loader.py' must be placed in same folder with 'dataset' folder.
+
++555555555555555555555555555555555555555555555555555555555555555+
+Run "python anns_data_loader.py" and then it generate binary files as below
+	+sift1M_base
+		+sift1M_base_b_mat.dat
+		+sift1M_base_norm.dat	
+	+sift1M_query
+		+sift1M_query_query.dat
+	+sift1M_nsg
+		+sift1M_nsg_pntrb.dat
+		+sift1M_nsg_pntre.dat
+		+sift1M_nsg_rows.dat
+
++ configuration
+To change filename and dataset name, modify the lines as below
+base file  ::line15,17,24
+query file ::line59,61
+nsg file   ::line77,82
+	
+
+         
 
