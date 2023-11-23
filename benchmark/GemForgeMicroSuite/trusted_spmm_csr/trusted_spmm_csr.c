@@ -154,14 +154,14 @@ int main(int argc, char **argv) {
     fseek(fp_mtx2, 0L, SEEK_END);
     sz = ftell(fp_mtx2);	
     fseek(fp_mtx2, 0L, SEEK_SET);
-//  	fread((void*)&num_dim, sizeof(uint64_t), 1, fp_mtx2);	
-    num_dim = 128;
-    //printf("sz = %d, num_dim = %d\n", sz, num_dim);
+  	fread((void*)&num_dim, sizeof(uint64_t), 1, fp_mtx2);	
+    printf("sz = %d, num_dim = %d\n", sz, num_dim);
   }
   else {
     printf("Cannot find %s\n", filename);
     return 0;
   }
+
 
   num_node = (sz-sizeof(uint64_t))/(sizeof(VALUETYPE)*num_dim);
   //printf("sz = %d, num_dim = %d, num_node = %d\n", sz, num_dim, num_node);
