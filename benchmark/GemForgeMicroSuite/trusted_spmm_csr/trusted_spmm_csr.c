@@ -11,6 +11,8 @@
 #include <assert.h>
 #include <stdint.h>
 #include <time.h>
+#include <sys/mman.h>
+#include <fcntl.h>
 
 
 #include <omp.h>
@@ -25,7 +27,7 @@ static const uint64_t num_iter			  = 1;
 //#define CHECK
 
 #define PTTIME
-#define PSP
+//#define PSP
 
 typedef float Value;
 
@@ -80,7 +82,7 @@ int main(int argc, char **argv) {
   char *ptr = NULL;
   char dataset_path[256] = "";
   char dataset_name[256] = "";
-  char filename[100];
+  char filename[400];
   char input_path[256] = "";
 
   uint64_t nonzero;
@@ -152,7 +154,8 @@ int main(int argc, char **argv) {
     fseek(fp_mtx2, 0L, SEEK_END);
     sz = ftell(fp_mtx2);	
     fseek(fp_mtx2, 0L, SEEK_SET);
-	fread((void*)&num_dim, sizeof(uint64_t), 1, fp_mtx2);	
+//  	fread((void*)&num_dim, sizeof(uint64_t), 1, fp_mtx2);	
+    num_dim = 128;
     //printf("sz = %d, num_dim = %d\n", sz, num_dim);
   }
   else {
@@ -246,26 +249,36 @@ int main(int argc, char **argv) {
 
   // ===============================================================================//
   // val alloc
+  printf("%lu %lu\n", nonzero, sizeof(VALUETYPE));
   VALUETYPE* val = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  nonzero * sizeof(VALUETYPE));
   
   // val from file
   strcpy(filename, dataset_path);
   strcat(filename, "_val.dat");
   printf("file name = %s\n", filename);
-  FILE* fp_mtx5 = fopen(filename, "rb");
+//  FILE* fp_mtx5 = fopen(filename, "rb");
+  int fp_mtx5 = open(filename, O_RDONLY);
 
-  if (fp_mtx5 != NULL) {
-    fseek(fp_mtx5, 0L, SEEK_END);
-    uint64_t sz = ftell(fp_mtx5);
-    fseek(fp_mtx5, 0L, SEEK_SET);
+  if (fp_mtx5 != -1) {
+//  if (fp_mtx5 != NULL) {
+//    fseek(fp_mtx5, 0L, SEEK_END);
+//    uint64_t sz = ftell(fp_mtx5);
+//    fseek(fp_mtx5, 0L, SEEK_SET);
+    uint64_t sz = nonzero * sizeof(VALUETYPE);
     if (sz == nonzero * sizeof(VALUETYPE)) {
-      fread((void*)val, sizeof(VALUETYPE), nonzero, fp_mtx5);
+      VALUETYPE* temp = (VALUETYPE*)mmap(0, sz, PROT_READ, MAP_PRIVATE, fp_mtx5, 0);
+      printf("size of val is %lu %lu %#x %d\n", sz, sizeof(VALUETYPE) * nonzero, temp, fp_mtx5);
+      memcpy(val, temp, sz);
+//      printf("val %lu\n", temp[sz / nonzero - 1]);
+      munmap(temp, sz);
+//      fread((void*)val, sizeof(VALUETYPE), nonzero, fp_mtx5);
+      printf("size of val is %lu\n", sizeof(VALUETYPE) * nonzero);
     }
     else {
         printf("size of file(%s) is wrong\n", filename);
         return 0;
     }
-    fclose(fp_mtx5);
+//    fclose(fp_mtx5);
   }
   else {
     printf("Cannot find %s\n", filename);
@@ -279,6 +292,7 @@ int main(int argc, char **argv) {
   // ===============================================================================//
 
   // c alloc
+  printf("size of C is %lu %lu %lu\n", total_num_node, num_dim, sizeof(VALUETYPE));
   VALUETYPE* c = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  total_num_node*num_dim * sizeof(VALUETYPE));
   INDEXTYPE ldc = num_dim;
 
