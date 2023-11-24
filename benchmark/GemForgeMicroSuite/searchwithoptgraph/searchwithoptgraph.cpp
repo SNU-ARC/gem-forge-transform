@@ -176,8 +176,8 @@ __attribute__((noinline)) Value SearchWithOptGraph(
         unsigned id = indx[m];
         if (flags[id]) continue;
         flags[id] = 1;
-        filtered_indx_end++;
         filtered_indx[filtered_indx_end] = id;
+        filtered_indx_end++;
       }
 
 #ifdef PSP
@@ -214,8 +214,12 @@ __attribute__((noinline)) Value SearchWithOptGraph(
 	  if (nk <= k)
 	    k = nk;
 	  else
-	    ++k;
-	}
+      ++k;
+    }
+//    for (INDEXTYPE i = 0; i < K_para; i++) {
+//      indices[i] = retset[i].id;
+//      printf("retset[%d].id = %lu, indices[%d] = %d\n", i, retset[i].id,i,indices[i]);
+//    }
 	return 0;
 }
 
@@ -516,13 +520,6 @@ int main(int argc, char **argv) {
   //printf("norm[2] = %lu\n" ,norm[2]);
   //printf("norm[3] = %lu\n" ,norm[3]);
   // ===============================================================================//
-#ifdef GEM_FORGE
-  gf_detail_sim_start();
-#endif
-
-#ifdef GEM_FORGE
-  gf_reset_stats();
-#endif
 
   std::vector<INDEXTYPE*> filtered_indx(numThreads);
   for (uint64_t i = 0; i < numThreads; i++) {
@@ -530,6 +527,16 @@ int main(int argc, char **argv) {
     memset(filtered_indx[i], 0, 100 * sizeof(INDEXTYPE));
   }
 
+  std::vector<std::vector<INDEXTYPE>> res(num_query);
+  for (INDEXTYPE i = 0; i < num_query; i++) res[i].resize(K);
+
+#ifdef GEM_FORGE
+  gf_detail_sim_start();
+#endif
+
+#ifdef GEM_FORGE
+  gf_reset_stats();
+#endif
 #pragma omp parallel for schedule(static)
   for (uint64_t i = 0; i < numThreads; i++) {
     INDEXTYPE* idx_base_addr = filtered_indx[i];
@@ -547,9 +554,6 @@ int main(int argc, char **argv) {
         [val_base_addr]"r"(val_base_addr), [val_granularity]"r"(val_granularity)
     );
   }
-  std::vector<std::vector<INDEXTYPE>> res(num_query);
-  for (INDEXTYPE i = 0; i < num_query; i++) res[i].resize(K);
-
   std::vector<INDEXTYPE> flags(num_node,0);
 #pragma omp parallel for schedule(static)
   for (INDEXTYPE i = 0; i < num_query; i++) {
