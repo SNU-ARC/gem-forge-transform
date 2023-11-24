@@ -347,6 +347,46 @@ int main(int argc, char **argv) {
 #endif
 
 #ifdef CHECK
+  // ===============================================================================//
+  // _spmm_c_mat from file
+  strcpy(filename, dataset_path);
+  strcat(filename, "_spmm_c_mat.dat");
+  printf("file name = %s\n", filename);
+  FILE* fp_mtx6 = fopen(filename, "rb");
+  VALUETYPE* c_golden = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE, total_num_node*num_dim * sizeof(VALUETYPE));
+
+  if (fp_mtx6 != NULL) {
+    fseek(fp_mtx6, 0L, SEEK_END);
+    sz = ftell(fp_mtx6);
+    fseek(fp_mtx6, 0L, SEEK_SET);
+    //printf("sz = %lu, sizeof(sz) = %d, num_node*num_dim * sizeof(VALUETYPE) = %lu\n", sz, sizeof(sz), num_node*num_dim * sizeof(VALUETYPE));
+    if (sz == num_node * num_dim * sizeof(VALUETYPE)) {
+        fread((void*)c_golden, sizeof(VALUETYPE), num_node*num_dim, fp_mtx6);
+    }
+    else {
+        printf("size of file(%s) is wrong\n", filename);
+        return 0;
+    }
+    fclose(fp_mtx6);	
+  }
+  else {
+    printf("Cannot find %s\n", filename);
+    return 0;
+  }
+
+  if( memcmp(c_golden, c, total_num_node*num_dim * sizeof(VALUETYPE)) == 0 )
+  {
+	printf("PPPPPPPPPPPPPPPPPPPPPPPPPPPP\n");
+    printf("Matched:: c_golden and c\n");
+	printf("PPPPPPPPPPPPPPPPPPPPPPPPPPPP\n");
+  } 
+  else{
+	printf("FFFFFFFFFFFFFFFFFFFFFFFFFFFF\n");
+    printf("unmatched:: c_golden and c\n");
+	printf("FFFFFFFFFFFFFFFFFFFFFFFFFFFF\n");
+  }
+
+
   //uint64_t err_cnt = 0;
   //Value* C1 = (Value*) aligned_alloc(CACHE_LINE_SIZE, file_size * sizeof(Value));
   //for (uint64_t i = 0; i < num_vector; i++) {
@@ -363,6 +403,7 @@ int main(int argc, char **argv) {
 #endif
 
 #ifdef CHECK
+  free(c_golden);
   //free(C1);
 #endif
 
