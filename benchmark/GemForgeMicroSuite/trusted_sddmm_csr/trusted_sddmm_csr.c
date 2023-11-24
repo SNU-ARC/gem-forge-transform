@@ -11,8 +11,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <time.h>
-#include <sys/mman.h>
-#include <fcntl.h>
+#include <math.h>
 
 
 #include <omp.h>
@@ -26,24 +25,22 @@
 static const uint64_t num_iter			  = 1;
 //#define CHECK
 
-#define PTTIME
+//#define PTTIME
 //#define PSP
 
 typedef float Value;
 
-// yosong
-__attribute__((noinline)) Value trusted_spmm_csr (
-   const INDEXTYPE k,      // dimension: col of A and B
-   const VALUETYPE *val,   // NNZ value  
-   const INDEXTYPE *indx,  // colids -> column indices 
-   const INDEXTYPE *pntrb, // starting index for rowptr
-   const INDEXTYPE *pntre, // ending index for rowptr
-   const VALUETYPE *b,     // Dense B matrix
-   const INDEXTYPE ldb,    // leading dimension of B (col size since B row-major)  
-   VALUETYPE *c,           // Dense matrix c
-   const INDEXTYPE ldc     // leading dimension of c (col size since C row-major) 
+__attribute__((noinline)) Value trusted_sddmm_csr (
+//   const INDEXTYPE *indptr, 
+   const INDEXTYPE *pntrb,
+   const INDEXTYPE *pntre,
+   const INDEXTYPE *indices, 
+   const VALUETYPE *X, 
+   const VALUETYPE *Y, 
+   VALUETYPE *O, 
+   const INDEXTYPE dim
 ) {
-   // spmm    
+   // sddmm    
    INDEXTYPE offset_begin = *pntrb;
    INDEXTYPE offset_end = *pntre;
 #ifdef PSP
@@ -57,12 +54,37 @@ __attribute__((noinline)) Value trusted_spmm_csr (
      );
    }
 #endif
-   for (INDEXTYPE j=offset_begin; j < offset_end; j++) {
-
-     //printf("&b: %x, indx: %lu, offset_begin: %lu, offset_end: %lu.\n", &b[indx[j] * ldb], indx[j], j, offset_end);
-     for (INDEXTYPE kk=0; kk < k; kk++)
-       c[kk] += (val[j]*b[indx[j]*ldb+kk]);
-   }
+   // X = a, Y = b, O = c, dim = k
+   // indptr[rid]      = pntrb[rid]   = offset_begin
+   // indptr[rid + 1 ] = pntrb[rid+1] = offset_end;
+   //for (IdType rid = 0; rid < N; ++rid)
+   //{
+      //const IdType row_start = indptr[rid], row_end = indptr[rid + 1];
+      //const IdType iindex = rid * dim;
+      //for (IdType j = row_start; j < row_end; ++j)
+      //for (IdType j = indptr[rid]; j < indptr[rid + 1]; ++j)
+      for (INDEXTYPE j = offset_begin; j < offset_end; ++j)
+      {
+         //const INDEXTYPE cid = indices[j];
+         //const INDEXTYPE jindex = cid * dim;
+         //const INDEXTYPE jindex = indices[j] * dim;
+         VALUETYPE attrc = 0;
+         for (INDEXTYPE k = 0; k < dim; ++k) 
+         {
+            //attrc += X[iindex + k] * Y[jindex + k];
+            //attrc += X[rid * dim + k] * Y[jindex + k];
+            //attrc += X[k] * Y[jindex + k];
+            attrc += X[k] * Y[indices[j] * dim + k];
+         }
+         VALUETYPE d1 = 1.0 / (1.0 + exp(-attrc));
+         //VALUETYPE d1 = fast_SM<VALUETYPE>(attrc, sm_table);
+   	   for (INDEXTYPE k = 0; k < dim; ++k) 
+         {
+            //O[iindex+k] = O[iindex+k]  + (1.0 - d1) * Y[jindex + k];
+            O[k] = O[k]  + (1.0 - d1) * Y[indices[j] * dim + k];
+         }
+      }
+   //}		
 
    return 0;
 }
@@ -82,7 +104,7 @@ int main(int argc, char **argv) {
   char *ptr = NULL;
   char dataset_path[256] = "";
   char dataset_name[256] = "";
-  char filename[400];
+  char filename[100];
   char input_path[256] = "";
 
   uint64_t nonzero;
@@ -125,15 +147,17 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  //printf("nonzero = %d, total_num_node = %d\n",nonzero, total_num_node);
+  printf("nonzero = %d, total_num_node = %d\n",nonzero, total_num_node);
+
+  //INDEXTYPE* indx;
   INDEXTYPE* indx = (INDEXTYPE*) aligned_alloc(CACHE_LINE_SIZE,  nonzero * sizeof(INDEXTYPE));
 
   if (sz == (nonzero+2) * sizeof(INDEXTYPE)) {
     fread((void*)indx, sizeof(INDEXTYPE), nonzero, fp_mtx);
   }
   else {
-	  printf("size of file(%s) is wrong\n", filename);
-	  return 0;
+      printf("size of file(%s) is wrong\n", filename);
+      return 0;
   }
   fclose(fp_mtx);
 
@@ -154,17 +178,20 @@ int main(int argc, char **argv) {
     fseek(fp_mtx2, 0L, SEEK_END);
     sz = ftell(fp_mtx2);	
     fseek(fp_mtx2, 0L, SEEK_SET);
-  	fread((void*)&num_dim, sizeof(uint64_t), 1, fp_mtx2);	
-    printf("sz = %d, num_dim = %d\n", sz, num_dim);
+	fread((void*)&num_dim, sizeof(uint64_t), 1, fp_mtx2);	
+    //printf("sz = %d, num_dim = %d\n", sz, num_dim);
   }
   else {
     printf("Cannot find %s\n", filename);
     return 0;
   }
 
-
   num_node = (sz-sizeof(uint64_t))/(sizeof(VALUETYPE)*num_dim);
   //printf("sz = %d, num_dim = %d, num_node = %d\n", sz, num_dim, num_node);
+
+
+  //VALUETYPE* b ;
+  //INDEXTYPE ldb;
   VALUETYPE* b = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  num_node*num_dim * sizeof(VALUETYPE));
   INDEXTYPE ldb = num_dim;
   if (sz == (num_node*num_dim) * sizeof(VALUETYPE) + sizeof(uint64_t)) {
@@ -249,19 +276,25 @@ int main(int argc, char **argv) {
 
   // ===============================================================================//
   // val alloc
-  printf("%lu %lu\n", nonzero, sizeof(VALUETYPE));
-  VALUETYPE* val; // = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  nonzero * sizeof(VALUETYPE));
+  VALUETYPE* val = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  nonzero * sizeof(VALUETYPE));
   
   // val from file
   strcpy(filename, dataset_path);
   strcat(filename, "_val.dat");
   printf("file name = %s\n", filename);
-  int fp_mtx5 = open(filename, O_RDONLY);
-
-  if (fp_mtx5 != -1) {
-      val = (VALUETYPE*)mmap(0, sz, PROT_READ, MAP_SHARED, fp_mtx5, 0);
-      printf("size of val is %lu %lu %#x %d\n", sz, sizeof(VALUETYPE) * nonzero, val, fp_mtx5);
-      printf("size of val is %lu\n", sizeof(VALUETYPE) * nonzero);
+  FILE* fp_mtx5 = fopen(filename, "rb");
+  if (fp_mtx5 != NULL) {
+    fseek(fp_mtx5, 0L, SEEK_END);
+    uint64_t sz = ftell(fp_mtx5);
+    fseek(fp_mtx5, 0L, SEEK_SET);
+    if (sz == nonzero * sizeof(VALUETYPE)) {
+      fread((void*)val, sizeof(VALUETYPE), nonzero, fp_mtx5);
+    }
+    else {
+        printf("size of file(%s) is wrong\n", filename);
+        return 0;
+    }
+    fclose(fp_mtx5);
   }
   else {
     printf("Cannot find %s\n", filename);
@@ -275,13 +308,41 @@ int main(int argc, char **argv) {
   // ===============================================================================//
 
   // c alloc
-  printf("size of C is %lu %lu %lu\n", total_num_node, num_dim, sizeof(VALUETYPE));
   VALUETYPE* c = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  total_num_node*num_dim * sizeof(VALUETYPE));
   INDEXTYPE ldc = num_dim;
 
   // m, k
   INDEXTYPE m = total_num_node; // rows of A 
   INDEXTYPE k = num_dim;	    // dimension: col of A and B
+  
+  // ===============================================================================//
+  // a from file
+  strcpy(filename, dataset_path);
+  strcat(filename, "_a_mat.dat");
+  printf("file name = %s\n", filename);
+  FILE* fp_mtx6 = fopen(filename, "rb");
+  VALUETYPE* a = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE, num_node*num_dim * sizeof(VALUETYPE));
+  INDEXTYPE lda = num_dim;
+
+  if (fp_mtx6 != NULL) {
+    fseek(fp_mtx6, 0L, SEEK_END);
+    sz = ftell(fp_mtx6);
+    fseek(fp_mtx6, 0L, SEEK_SET);
+    //printf("sz = %lu, sizeof(sz) = %d, num_node*num_dim * sizeof(VALUETYPE) = %lu\n", sz, sizeof(sz), num_node*num_dim * sizeof(VALUETYPE));
+    fread((void*)a, sizeof(VALUETYPE), num_node*num_dim, fp_mtx6);
+    if (sz == num_node * num_dim * sizeof(VALUETYPE)) {
+        fread((void*)a, sizeof(VALUETYPE), num_node*num_dim, fp_mtx6);
+    }
+    else {
+        printf("size of file(%s) is wrong\n", filename);
+        return 0;
+    }
+    fclose(fp_mtx6);	
+  }
+  else {
+    printf("Cannot find %s\n", filename);
+    return 0;
+  }
 
 #ifdef GEM_FORGE
   gf_detail_sim_start();
@@ -327,8 +388,14 @@ int main(int argc, char **argv) {
 #ifdef PTTIME 
    #pragma omp parallel for schedule(static)
 #endif
-  for (uint64_t i = 0; i < m; i++) {
-	  trusted_spmm_csr(k, val, indx, &pntrb[i], &pntre[i], b, ldb, &c[i*ldc], ldc);
+
+   // indptr[rid]      = pntrb[rid]   = offset_begin
+   // indptr[rid + 1 ] = pntrb[rid+1] = offset_end;
+   //for (IdType rid = 0; rid < N; ++rid)
+  //for (uint64_t i = 0; i < m; i++) {
+  for (uint64_t rid = 0; rid < m; ++rid) {
+	  //trusted_sddmm_csr(k, val, indx, &pntrb[i], &pntre[i], b, ldb, &c[i*ldc], ldc);
+	  trusted_sddmm_csr(&pntrb[rid], &pntrb[rid+1], indx, a, b, &c[rid*ldc], ldb);
   }
 
 #ifdef PSP
@@ -347,46 +414,6 @@ int main(int argc, char **argv) {
 #endif
 
 #ifdef CHECK
-  // ===============================================================================//
-  // _spmm_c_mat from file
-  strcpy(filename, dataset_path);
-  strcat(filename, "_spmm_c_mat.dat");
-  printf("file name = %s\n", filename);
-  FILE* fp_mtx6 = fopen(filename, "rb");
-  VALUETYPE* c_golden = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE, total_num_node*num_dim * sizeof(VALUETYPE));
-
-  if (fp_mtx6 != NULL) {
-    fseek(fp_mtx6, 0L, SEEK_END);
-    sz = ftell(fp_mtx6);
-    fseek(fp_mtx6, 0L, SEEK_SET);
-    //printf("sz = %lu, sizeof(sz) = %d, num_node*num_dim * sizeof(VALUETYPE) = %lu\n", sz, sizeof(sz), num_node*num_dim * sizeof(VALUETYPE));
-    if (sz == num_node * num_dim * sizeof(VALUETYPE)) {
-        fread((void*)c_golden, sizeof(VALUETYPE), num_node*num_dim, fp_mtx6);
-    }
-    else {
-        printf("size of file(%s) is wrong\n", filename);
-        return 0;
-    }
-    fclose(fp_mtx6);	
-  }
-  else {
-    printf("Cannot find %s\n", filename);
-    return 0;
-  }
-
-  if( memcmp(c_golden, c, total_num_node*num_dim * sizeof(VALUETYPE)) == 0 )
-  {
-	printf("PPPPPPPPPPPPPPPPPPPPPPPPPPPP\n");
-    printf("Matched:: c_golden and c\n");
-	printf("PPPPPPPPPPPPPPPPPPPPPPPPPPPP\n");
-  } 
-  else{
-	printf("FFFFFFFFFFFFFFFFFFFFFFFFFFFF\n");
-    printf("unmatched:: c_golden and c\n");
-	printf("FFFFFFFFFFFFFFFFFFFFFFFFFFFF\n");
-  }
-
-
   //uint64_t err_cnt = 0;
   //Value* C1 = (Value*) aligned_alloc(CACHE_LINE_SIZE, file_size * sizeof(Value));
   //for (uint64_t i = 0; i < num_vector; i++) {
@@ -403,16 +430,14 @@ int main(int argc, char **argv) {
 #endif
 
 #ifdef CHECK
-  free(c_golden);
   //free(C1);
 #endif
 
-//  free(val);
-  munmap(val, sizeof(VALUETYPE) * nonzero);
+  free(val);
   free(indx);
   free(pntrb);
   free(pntre);
-  free(b);
+//  free(b);
   free(c);
 
   return 0;
