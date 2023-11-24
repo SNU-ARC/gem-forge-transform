@@ -97,7 +97,8 @@ __attribute__((noinline)) Value SearchWithOptGraph(
    const INDEXTYPE *indx,      // colids -> column indices of sparse matrix 
    const INDEXTYPE *pntrb,     // starting index for rowptr of csr of sparse matrix
    const INDEXTYPE *pntre,     // ending index for rowptr of csr of sparse matrix 
-         INDEXTYPE *indices
+         INDEXTYPE *indices,
+         INDEXTYPE *filtered_indx
 ){
 
 	INDEXTYPE L = L_para;
@@ -117,13 +118,12 @@ __attribute__((noinline)) Value SearchWithOptGraph(
 
     // modified
     for (INDEXTYPE j=pntrb[ep_]; j < pntre[ep_]; j++) {
-	   //printf("j = %d, indx[j] = %d, sizeof(indx[j]) = %d, sizeof(init_ids[tmp_l]) = %d\n", j, indx[j],sizeof(indx[j]), sizeof(init_ids[tmp_l]));
        init_ids[tmp_l]= indx[j];
        flags[j] = 1;
        tmp_l++;
     }
 
-	// original
+	  // original
     //for (; tmp_l < L && tmp_l < MaxM_ep; tmp_l++) {
     //  init_ids[tmp_l] = neighbors[tmp_l];
     //  flags[init_ids[tmp_l]] = true;
@@ -169,22 +169,39 @@ __attribute__((noinline)) Value SearchWithOptGraph(
 	  if (retset[k].flag) {
 	    retset[k].flag = false;
 	    INDEXTYPE n = retset[k].id;
-	    //_mm_prefetch(opt_graph_ + node_size * n + data_len, _MM_HINT_T0);
 
-	    //for (unsigned m = 0; m < MaxM; ++m)
-	    //  _mm_prefetch(opt_graph_ + node_size * neighbors[m], _MM_HINT_T0);
-	
-	    for (unsigned m = pntrb[n]; m < pntre[n]; ++m) {
-	      unsigned id = indx[m];
+      uint64_t filtered_indx_begin = 0;
+      uint64_t filtered_indx_end = 0;
+      for (unsigned m = pntrb[n]; m < pntre[n]; ++m) {
+        unsigned id = indx[m];
+        if (flags[id]) continue;
+        flags[id] = 1;
+        filtered_indx[filtered_indx_end] = id;
+        filtered_indx_end++;
+      }
+
+#ifdef PSP
+      if (filtered_indx_begin < filtered_indx_end) {
+        __asm__ volatile (
+            "stream.input.offset.begin  $0, %[filtered_indx_begin] \t\n"
+            "stream.input.offset.end  $0, %[filtered_indx_end] \t\n"
+            "stream.input.ready $0  \t\n"
+            :
+            :[filtered_indx_begin]"r"(filtered_indx_begin), [filtered_indx_end]"r"(filtered_indx_end)
+        );
+      }
+#endif
+
+//	    for (unsigned m = pntrb[n]; m < pntre[n]; ++m) {
+	    for (unsigned m = filtered_indx_begin; m < filtered_indx_end; ++m) {
+	      unsigned id = filtered_indx[m];
 		  //printf("k = %d, id = %d, n_id=%d\n", k, n, id);
-	      if (flags[id]) continue;
-	      flags[id] = 1;
-  	      float norm_x = norm_mat[id];
-		  float dist=0;
-  	      for(INDEXTYPE ii=0; ii<dimension_; ii=ii+1){
-  	      	dist += data_mat[dimension_*id+ii] * query_mat[ii];		
-  	      }
-	  	  dist = -2*dist + norm_x;	  
+        float norm_x = norm_mat[id];
+        float dist=0;
+        for(INDEXTYPE ii=0; ii<dimension_; ii=ii+1){
+          dist += data_mat[dimension_*id+ii] * query_mat[ii];		
+        }
+        dist = -2*dist + norm_x;	  
 
 	      if (dist >= retset[L - 1].distance) continue;
 	      Neighbor nn(id, dist, true);
@@ -197,13 +214,12 @@ __attribute__((noinline)) Value SearchWithOptGraph(
 	  if (nk <= k)
 	    k = nk;
 	  else
-	    ++k;
-	}
-	//for (size_t i = 0; i < K_para; i++) {
-	for (INDEXTYPE i = 0; i < K_para; i++) {
-	  indices[i] = retset[i].id;
-	  printf("retset[%d].id = %lu, indices[%d] = %d\n", i, retset[i].id,i,indices[i]);
-	}
+      ++k;
+    }
+//    for (INDEXTYPE i = 0; i < K_para; i++) {
+//      indices[i] = retset[i].id;
+//      printf("retset[%d].id = %lu, indices[%d] = %d\n", i, retset[i].id,i,indices[i]);
+//    }
 	return 0;
 }
 
@@ -504,31 +520,53 @@ int main(int argc, char **argv) {
   //printf("norm[2] = %lu\n" ,norm[2]);
   //printf("norm[3] = %lu\n" ,norm[3]);
   // ===============================================================================//
+
+  std::vector<INDEXTYPE*> filtered_indx(numThreads);
+  for (uint64_t i = 0; i < numThreads; i++) {
+    filtered_indx[i] = (INDEXTYPE*)aligned_alloc(CACHE_LINE_SIZE, 100 * sizeof(INDEXTYPE));
+    memset(filtered_indx[i], 0, 100 * sizeof(INDEXTYPE));
+  }
+
   std::vector<std::vector<INDEXTYPE>> res(num_query);
   for (INDEXTYPE i = 0; i < num_query; i++) res[i].resize(K);
-
-  std::vector<INDEXTYPE> flags(num_node,0);
-  for (INDEXTYPE i = 0; i < num_query; i++) {
-	  SearchWithOptGraph(ep_, L, K, num_node, num_dim, flags, b, norm, query + i * num_dim, indx, pntrb, pntre, res[i].data());
-  }
 
 #ifdef GEM_FORGE
   gf_detail_sim_start();
 #endif
 
-#ifdef WARM_CACHE
-//  WARM_UP_ARRAY(A, file_size);
-//  WARM_UP_ARRAY(B, file_size);
-//  WARM_UP_ARRAY(C, file_size);
-//  // Initialize the threads.
-//#pragma omp parallel for schedule(static) firstprivate(A)
-//  for (int tid = 0; tid < numThreads; ++tid) {
-//    volatile Value x = *A;
-//  }
-#endif
-
 #ifdef GEM_FORGE
   gf_reset_stats();
+#endif
+#pragma omp parallel for schedule(static)
+  for (uint64_t i = 0; i < numThreads; i++) {
+    INDEXTYPE* idx_base_addr = filtered_indx[i];
+    uint64_t idx_granularity = sizeof(INDEXTYPE);
+    VALUETYPE* val_base_addr = b;
+    uint64_t val_granularity = num_dim * sizeof(VALUETYPE);
+    __asm__ volatile (
+        "stream.cfg.idx.base  $0, %[idx_base_addr] \t\n"    // Configure stream (base address of index)
+        "stream.cfg.idx.gran  $0, %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
+        "stream.cfg.val.base  $0, %[val_base_addr] \t\n"    // Configure stream (base address of value)
+        "stream.cfg.val.gran  $0, %[val_granularity] \t\n"  // Configure stream (access granularity of value)
+        "stream.cfg.ready $0 \t\n"  // Configure steam ready
+        :
+        :[idx_base_addr]"r"(idx_base_addr), [idx_granularity]"r"(idx_granularity),
+        [val_base_addr]"r"(val_base_addr), [val_granularity]"r"(val_granularity)
+    );
+  }
+  std::vector<INDEXTYPE> flags(num_node,0);
+#pragma omp parallel for schedule(static)
+  for (INDEXTYPE i = 0; i < num_query; i++) {
+	  SearchWithOptGraph(ep_, L, K, num_node, num_dim, flags, b, norm, query + i * num_dim, indx, pntrb, pntre, res[i].data(), filtered_indx[i]);
+  }
+
+#ifdef PSP
+   #pragma omp parallel for schedule(static)
+  for (uint64_t i = 0; i < numThreads; i++) {
+    __asm__ volatile (
+        "stream.terminate $0 \t\n"
+    );
+  }
 #endif
 
 #ifdef GEM_FORGE
@@ -555,6 +593,9 @@ int main(int argc, char **argv) {
   //free(C1);
 #endif
 
+  for (uint64_t i = 0; i < numThreads; i++) {
+    free(filtered_indx[i]);
+  }
   free(pntrb);
   free(pntre);
   free(indx);

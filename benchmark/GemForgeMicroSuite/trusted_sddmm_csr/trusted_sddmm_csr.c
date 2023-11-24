@@ -12,6 +12,8 @@
 #include <stdint.h>
 #include <time.h>
 #include <math.h>
+#include <sys/mman.h>
+#include <fcntl.h>
 
 
 #include <omp.h>
@@ -25,7 +27,7 @@
 static const uint64_t num_iter			  = 1;
 //#define CHECK
 
-//#define PTTIME
+#define PTTIME
 //#define PSP
 
 typedef float Value;
@@ -104,7 +106,7 @@ int main(int argc, char **argv) {
   char *ptr = NULL;
   char dataset_path[256] = "";
   char dataset_name[256] = "";
-  char filename[100];
+  char filename[400];
   char input_path[256] = "";
 
   uint64_t nonzero;
@@ -225,7 +227,7 @@ int main(int argc, char **argv) {
       fread((void*)pntrb, sizeof(INDEXTYPE), total_num_node, fp_mtx3);
     }
     else {
-        printf("size of file(%s) is wrong\n", filename);
+        printf("size of file(%s) is wrong %lu\n", filename, sz);
         return 0;
     }
     fclose(fp_mtx3);
@@ -282,19 +284,10 @@ int main(int argc, char **argv) {
   strcpy(filename, dataset_path);
   strcat(filename, "_val.dat");
   printf("file name = %s\n", filename);
-  FILE* fp_mtx5 = fopen(filename, "rb");
-  if (fp_mtx5 != NULL) {
-    fseek(fp_mtx5, 0L, SEEK_END);
-    uint64_t sz = ftell(fp_mtx5);
-    fseek(fp_mtx5, 0L, SEEK_SET);
-    if (sz == nonzero * sizeof(VALUETYPE)) {
-      fread((void*)val, sizeof(VALUETYPE), nonzero, fp_mtx5);
-    }
-    else {
-        printf("size of file(%s) is wrong\n", filename);
-        return 0;
-    }
-    fclose(fp_mtx5);
+  int fp_mtx5 = open(filename, O_RDONLY);
+
+  if (fp_mtx5 != -1) {
+      val = (VALUETYPE*)mmap(0, sizeof(VALUETYPE) * nonzero, PROT_READ, MAP_SHARED, fp_mtx5, 0);
   }
   else {
     printf("Cannot find %s\n", filename);
@@ -328,7 +321,7 @@ int main(int argc, char **argv) {
     fseek(fp_mtx6, 0L, SEEK_END);
     sz = ftell(fp_mtx6);
     fseek(fp_mtx6, 0L, SEEK_SET);
-    //printf("sz = %lu, sizeof(sz) = %d, num_node*num_dim * sizeof(VALUETYPE) = %lu\n", sz, sizeof(sz), num_node*num_dim * sizeof(VALUETYPE));
+    printf("sz = %lu, sizeof(sz) = %d, num_node*num_dim * sizeof(VALUETYPE) = %lu\n", sz, sizeof(sz), num_node*num_dim * sizeof(VALUETYPE));
     fread((void*)a, sizeof(VALUETYPE), num_node*num_dim, fp_mtx6);
     if (sz == num_node * num_dim * sizeof(VALUETYPE)) {
         fread((void*)a, sizeof(VALUETYPE), num_node*num_dim, fp_mtx6);
@@ -385,14 +378,14 @@ int main(int argc, char **argv) {
   }
 #endif
 
-#ifdef PTTIME 
-   #pragma omp parallel for schedule(static)
-#endif
 
    // indptr[rid]      = pntrb[rid]   = offset_begin
    // indptr[rid + 1 ] = pntrb[rid+1] = offset_end;
    //for (IdType rid = 0; rid < N; ++rid)
   //for (uint64_t i = 0; i < m; i++) {
+#ifdef PTTIME 
+   #pragma omp parallel for schedule(static)
+#endif
   for (uint64_t rid = 0; rid < m; ++rid) {
 	  //trusted_sddmm_csr(k, val, indx, &pntrb[i], &pntre[i], b, ldb, &c[i*ldc], ldc);
 	  trusted_sddmm_csr(&pntrb[rid], &pntrb[rid+1], indx, a, b, &c[rid*ldc], ldb);
@@ -433,7 +426,8 @@ int main(int argc, char **argv) {
   //free(C1);
 #endif
 
-  free(val);
+//  free(val);
+  munmap(val, sizeof(VALUETYPE) * nonzero);
   free(indx);
   free(pntrb);
   free(pntre);
