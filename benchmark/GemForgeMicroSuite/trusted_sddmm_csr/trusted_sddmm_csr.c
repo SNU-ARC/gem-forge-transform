@@ -323,13 +323,13 @@ int main(int argc, char **argv) {
     fseek(fp_mtx6, 0L, SEEK_SET);
     printf("sz = %lu, sizeof(sz) = %d, num_node*num_dim * sizeof(VALUETYPE) = %lu\n", sz, sizeof(sz), num_node*num_dim * sizeof(VALUETYPE));
     fread((void*)a, sizeof(VALUETYPE), num_node*num_dim, fp_mtx6);
-    if (sz == num_node * num_dim * sizeof(VALUETYPE)) {
+//    if (sz == num_node * num_dim * sizeof(VALUETYPE)) {
         fread((void*)a, sizeof(VALUETYPE), num_node*num_dim, fp_mtx6);
-    }
-    else {
-        printf("size of file(%s) is wrong\n", filename);
-        return 0;
-    }
+//    }
+//    else {
+//        printf("size of file(%s) is wrong\n", filename);
+//        return 0;
+//    }
     fclose(fp_mtx6);	
   }
   else {
@@ -386,7 +386,7 @@ int main(int argc, char **argv) {
 #ifdef PTTIME 
    #pragma omp parallel for schedule(static)
 #endif
-  for (uint64_t rid = 0; rid < m; ++rid) {
+  for (uint64_t rid = 0; rid < 100000/*m*/; ++rid) {
 	  //trusted_sddmm_csr(k, val, indx, &pntrb[i], &pntre[i], b, ldb, &c[i*ldc], ldc);
 	  trusted_sddmm_csr(&pntrb[rid], &pntrb[rid+1], indx, a, b, &c[rid*ldc], ldb);
   }

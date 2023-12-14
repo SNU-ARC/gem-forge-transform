@@ -114,7 +114,7 @@ __attribute__((noinline)) Value SearchWithOptGraph(
 	INDEXTYPE tmp_l = 0;
 	INDEXTYPE MaxM_ep =  pntre[ep_] - pntrb[ep_];	
 
-	printf("MaxM_ep = %d\n", MaxM_ep);
+//	printf("MaxM_ep = %d\n", MaxM_ep);
 
     // modified
     for (INDEXTYPE j=pntrb[ep_]; j < pntre[ep_]; j++) {
@@ -178,6 +178,7 @@ __attribute__((noinline)) Value SearchWithOptGraph(
         flags[id] = 1;
         filtered_indx[filtered_indx_end] = id;
         filtered_indx_end++;
+        std::cout << "SJ debug point: " << n << ", " << id << ", " << filtered_indx_end << ", " << pntrb[n] << ", " << pntre[n] << std::endl;
       }
 
 #ifdef PSP
@@ -194,8 +195,8 @@ __attribute__((noinline)) Value SearchWithOptGraph(
 
 //	    for (unsigned m = pntrb[n]; m < pntre[n]; ++m) {
 	    for (unsigned m = filtered_indx_begin; m < filtered_indx_end; ++m) {
-	      unsigned id = filtered_indx[m];
-		  //printf("k = %d, id = %d, n_id=%d\n", k, n, id);
+        unsigned id = filtered_indx[m];
+        printf("k = %d, id = %d, n_id=%d\n", k, n, id);
         float norm_x = norm_mat[id];
         float dist=0;
         for(INDEXTYPE ii=0; ii<dimension_; ii=ii+1){
@@ -360,7 +361,7 @@ int main(int argc, char **argv) {
     fseek(fp_mtx2, 0L, SEEK_END);
     sz = ftell(fp_mtx2);	
     fseek(fp_mtx2, 0L, SEEK_SET);
-	fread((void*)&num_dim, sizeof(uint64_t), 1, fp_mtx2);	
+    fread((void*)&num_dim, sizeof(uint64_t), 1, fp_mtx2);	
   }
   else {
     printf("Cannot find %s\n", filename);
@@ -368,7 +369,7 @@ int main(int argc, char **argv) {
   }
 
   num_node = (sz-sizeof(uint64_t))/(sizeof(VALUETYPE)*num_dim);
-  printf("num_dim = %d, num_node = %d\n", sz, num_dim, num_node);
+  printf("num_dim = %lu, num_node = %lu\n", num_dim, num_node);
   VALUETYPE* b = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  num_node*num_dim * sizeof(VALUETYPE));
   if (sz == (num_node*num_dim) * sizeof(VALUETYPE) + sizeof(uint64_t)) {
     fread((void*)b, sizeof(VALUETYPE), num_node*num_dim, fp_mtx2);
@@ -521,8 +522,8 @@ int main(int argc, char **argv) {
   //printf("norm[3] = %lu\n" ,norm[3]);
   // ===============================================================================//
 
-  std::vector<INDEXTYPE*> filtered_indx(numThreads);
-  for (uint64_t i = 0; i < numThreads; i++) {
+  std::vector<INDEXTYPE*> filtered_indx(num_query);
+  for (uint64_t i = 0; i < num_query; i++) {
     filtered_indx[i] = (INDEXTYPE*)aligned_alloc(CACHE_LINE_SIZE, 100 * sizeof(INDEXTYPE));
     memset(filtered_indx[i], 0, 100 * sizeof(INDEXTYPE));
   }
@@ -537,6 +538,7 @@ int main(int argc, char **argv) {
 #ifdef GEM_FORGE
   gf_reset_stats();
 #endif
+#ifdef PSP
 #pragma omp parallel for schedule(static)
   for (uint64_t i = 0; i < numThreads; i++) {
     INDEXTYPE* idx_base_addr = filtered_indx[i];
@@ -554,9 +556,11 @@ int main(int argc, char **argv) {
         [val_base_addr]"r"(val_base_addr), [val_granularity]"r"(val_granularity)
     );
   }
+#endif
   std::vector<INDEXTYPE> flags(num_node,0);
 #pragma omp parallel for schedule(static)
-  for (INDEXTYPE i = 0; i < num_query; i++) {
+  for (INDEXTYPE i = 0; i < /* numThreads */ num_query; i++) {
+    std::cout << i << "th iteration" << std::endl;
 	  SearchWithOptGraph(ep_, L, K, num_node, num_dim, flags, b, norm, query + i * num_dim, indx, pntrb, pntre, res[i].data(), filtered_indx[i]);
   }
 
