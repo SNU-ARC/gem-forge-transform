@@ -65,27 +65,24 @@ __attribute__((noinline)) Value trusted_sddmm_csr (
       //const IdType iindex = rid * dim;
       //for (IdType j = row_start; j < row_end; ++j)
       //for (IdType j = indptr[rid]; j < indptr[rid + 1]; ++j)
-      for (INDEXTYPE j = offset_begin; j < offset_end; ++j)
-      {
-         //const INDEXTYPE cid = indices[j];
-         //const INDEXTYPE jindex = cid * dim;
-         //const INDEXTYPE jindex = indices[j] * dim;
-         VALUETYPE attrc = 0;
-         for (INDEXTYPE k = 0; k < dim; ++k) 
-         {
-            //attrc += X[iindex + k] * Y[jindex + k];
-            //attrc += X[rid * dim + k] * Y[jindex + k];
-            //attrc += X[k] * Y[jindex + k];
-            attrc += X[k] * Y[indices[j] * dim + k];
-         }
-         VALUETYPE d1 = 1.0 / (1.0 + exp(-attrc));
-         //VALUETYPE d1 = fast_SM<VALUETYPE>(attrc, sm_table);
-   	   for (INDEXTYPE k = 0; k < dim; ++k) 
-         {
-            //O[iindex+k] = O[iindex+k]  + (1.0 - d1) * Y[jindex + k];
-            O[k] = O[k]  + (1.0 - d1) * Y[indices[j] * dim + k];
-         }
-      }
+   for (INDEXTYPE j = offset_begin; j < offset_end; ++j) {
+     //const INDEXTYPE cid = indices[j];
+     //const INDEXTYPE jindex = cid * dim;
+     //const INDEXTYPE jindex = indices[j] * dim;
+     VALUETYPE attrc = 0;
+     for (INDEXTYPE k = 0; k < dim; ++k) {
+       //attrc += X[iindex + k] * Y[jindex + k];
+       //attrc += X[rid * dim + k] * Y[jindex + k];
+       //attrc += X[k] * Y[jindex + k];
+       attrc += X[k] * Y[indices[j] * dim + k];
+     }
+     VALUETYPE d1 = 1.0 / (1.0 + exp(-attrc));
+     //VALUETYPE d1 = fast_SM<VALUETYPE>(attrc, sm_table);
+     for (INDEXTYPE k = 0; k < dim; ++k) {
+       //O[iindex+k] = O[iindex+k]  + (1.0 - d1) * Y[jindex + k];
+       O[k] = O[k]  + (1.0 - d1) * Y[indices[j] * dim + k];
+     }
+   }
    //}		
 
    return 0;
@@ -192,12 +189,14 @@ int main(int argc, char **argv) {
   //printf("sz = %d, num_dim = %d, num_node = %d\n", sz, num_dim, num_node);
 
 
-  //VALUETYPE* b ;
+  VALUETYPE* b ;
   //INDEXTYPE ldb;
-  VALUETYPE* b = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  num_node*num_dim * sizeof(VALUETYPE));
+  int fp_mtx2_mmap = open(filename, O_RDONLY);
+  //VALUETYPE* b = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  num_node*num_dim * sizeof(VALUETYPE));
   INDEXTYPE ldb = num_dim;
-  if (sz == (num_node*num_dim) * sizeof(VALUETYPE) + sizeof(uint64_t)) {
-    fread((void*)b, sizeof(VALUETYPE), num_node*num_dim, fp_mtx2);
+  if (fp_mtx2_mmap != -1) {
+    b = (VALUETYPE*)mmap(0, sizeof(VALUETYPE) * num_node * num_dim + sizeof(uint64_t), PROT_READ, MAP_SHARED, fp_mtx2_mmap, 0);
+    b += sizeof(uint64_t);
   }
   else {
       printf("size of file(%s) is wrong\n", filename);
@@ -223,6 +222,7 @@ int main(int argc, char **argv) {
     fseek(fp_mtx3, 0L, SEEK_END);
     uint64_t sz = ftell(fp_mtx3);
     fseek(fp_mtx3, 0L, SEEK_SET);
+    printf("sz: %lu, total_num_node * sizeof(INDEXTYPE): %lu\n", sz, total_num_node * sizeof(INDEXTYPE));
     if (sz == total_num_node * sizeof(INDEXTYPE)) {
       fread((void*)pntrb, sizeof(INDEXTYPE), total_num_node, fp_mtx3);
     }
@@ -314,7 +314,8 @@ int main(int argc, char **argv) {
   strcat(filename, "_a_mat.dat");
   printf("file name = %s\n", filename);
   FILE* fp_mtx6 = fopen(filename, "rb");
-  VALUETYPE* a = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE, num_node*num_dim * sizeof(VALUETYPE));
+  VALUETYPE* a;
+//  VALUETYPE* a  = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE, num_node*num_dim * sizeof(VALUETYPE));
   INDEXTYPE lda = num_dim;
 
   if (fp_mtx6 != NULL) {
@@ -322,18 +323,20 @@ int main(int argc, char **argv) {
     sz = ftell(fp_mtx6);
     fseek(fp_mtx6, 0L, SEEK_SET);
     printf("sz = %lu, sizeof(sz) = %d, num_node*num_dim * sizeof(VALUETYPE) = %lu\n", sz, sizeof(sz), num_node*num_dim * sizeof(VALUETYPE));
-    fread((void*)a, sizeof(VALUETYPE), num_node*num_dim, fp_mtx6);
-//    if (sz == num_node * num_dim * sizeof(VALUETYPE)) {
-        fread((void*)a, sizeof(VALUETYPE), num_node*num_dim, fp_mtx6);
-//    }
-//    else {
-//        printf("size of file(%s) is wrong\n", filename);
-//        return 0;
-//    }
     fclose(fp_mtx6);	
   }
   else {
     printf("Cannot find %s\n", filename);
+    return 0;
+  }
+
+  int fp_mtx6_mmap = open(filename, O_RDONLY);
+  if (fp_mtx6_mmap != -1 && sz == num_node * num_dim * sizeof(VALUETYPE) + sizeof(uint64_t)) {
+    a = (VALUETYPE*)mmap(0, num_node * num_dim * sizeof(VALUETYPE) + sizeof(uint64_t), PROT_READ, MAP_SHARED, fp_mtx6_mmap, 0);
+    a += sizeof(uint64_t);
+  }
+  else {
+    printf("size of file(%s) is wrong\n", filename);
     return 0;
   }
 
@@ -386,9 +389,9 @@ int main(int argc, char **argv) {
 #ifdef PTTIME 
    #pragma omp parallel for schedule(static)
 #endif
-  for (uint64_t rid = 0; rid < 100000/*m*/; ++rid) {
+  for (uint64_t rid = 0; rid < 20000 /* m */; ++rid) {
 	  //trusted_sddmm_csr(k, val, indx, &pntrb[i], &pntre[i], b, ldb, &c[i*ldc], ldc);
-	  trusted_sddmm_csr(&pntrb[rid], &pntrb[rid+1], indx, a, b, &c[rid*ldc], ldb);
+	  trusted_sddmm_csr(&pntrb[rid], &pntre[rid], indx, &a[rid*ldb], b, &c[rid*ldc], ldb);
   }
 
 #ifdef PSP
