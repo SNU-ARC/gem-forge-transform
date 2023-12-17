@@ -155,21 +155,26 @@ int main(int argc, char **argv) {
     sz = ftell(fp_mtx2);	
     fseek(fp_mtx2, 0L, SEEK_SET);
   	fread((void*)&num_dim, sizeof(uint64_t), 1, fp_mtx2);	
-    printf("sz = %d, num_dim = %d\n", sz, num_dim);
+    printf("sz = %lu, num_dim = %d\n", sz, num_dim);
   }
   else {
     printf("Cannot find %s\n", filename);
     return 0;
   }
 
-
   num_node = (sz-sizeof(uint64_t))/(sizeof(VALUETYPE)*num_dim);
-  //printf("sz = %d, num_dim = %d, num_node = %d\n", sz, num_dim, num_node);
-  VALUETYPE* b = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  num_node*num_dim * sizeof(VALUETYPE));
   INDEXTYPE ldb = num_dim;
-  if (sz == (num_node*num_dim) * sizeof(VALUETYPE) + sizeof(uint64_t)) {
-    fread((void*)b, sizeof(VALUETYPE), num_node*num_dim, fp_mtx2);
+  //printf("sz = %d, num_dim = %d, num_node = %d\n", sz, num_dim, num_node);
+  VALUETYPE* b;
+  int fp_mtx2_mmap = open(filename, O_RDONLY);
+  if (fp_mtx2_mmap != -1) {
+    b = (VALUETYPE*)mmap(0, num_node * num_dim * sizeof(VALUETYPE) + sizeof(uint64_t), PROT_READ, MAP_SHARED, fp_mtx2_mmap, 0);
+    b += sizeof(uint64_t);
   }
+//  VALUETYPE* b = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  num_node*num_dim * sizeof(VALUETYPE));
+//  if (sz == (num_node*num_dim) * sizeof(VALUETYPE) + sizeof(uint64_t)) {
+//    fread((void*)b, sizeof(VALUETYPE), num_node*num_dim, fp_mtx2);
+//  }
   else {
       printf("size of file(%s) is wrong\n", filename);
       return 0;
@@ -250,18 +255,36 @@ int main(int argc, char **argv) {
   // ===============================================================================//
   // val alloc
   printf("%lu %lu\n", nonzero, sizeof(VALUETYPE));
-  VALUETYPE* val; // = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  nonzero * sizeof(VALUETYPE));
+  VALUETYPE* val;
+//  VALUETYPE* val = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  nonzero * sizeof(VALUETYPE));
   
   // val from file
   strcpy(filename, dataset_path);
   strcat(filename, "_val.dat");
   printf("file name = %s\n", filename);
+//  FILE* fp_mtx5 = fopen(filename, "rb");
+//  if (fp_mtx5 != NULL) {
+//    fseek(fp_mtx5, 0L, SEEK_END);
+//    uint64_t sz = ftell(fp_mtx5);
+//    fseek(fp_mtx5, 0L, SEEK_SET);
+//    if (sz == nonzero * sizeof(VALUETYPE)) {
+//      fread((void*)val, sizeof(VALUETYPE), nonzero, fp_mtx5);
+//    }
+//    else {
+//      printf("size of file(%s) is wrong\n", filename);
+//      return 0;
+//    }
+//    fclose(fp_mtx5);
+//  }
+
   int fp_mtx5 = open(filename, O_RDONLY);
 
   if (fp_mtx5 != -1) {
-      val = (VALUETYPE*)mmap(0, sz, PROT_READ, MAP_SHARED, fp_mtx5, 0);
+//      read(fp_mtx5, val, nonzero * sizeof(VALUETYPE));
+      val = (VALUETYPE*)mmap(0, nonzero * sizeof(VALUETYPE), PROT_READ, MAP_SHARED, fp_mtx5, 0);
       printf("size of val is %lu %lu %#x %d\n", sz, sizeof(VALUETYPE) * nonzero, val, fp_mtx5);
       printf("size of val is %lu\n", sizeof(VALUETYPE) * nonzero);
+      close(fp_mtx5);
   }
   else {
     printf("Cannot find %s\n", filename);
@@ -412,7 +435,7 @@ int main(int argc, char **argv) {
   free(indx);
   free(pntrb);
   free(pntre);
-  free(b);
+//  free(b);
   free(c);
 
   return 0;

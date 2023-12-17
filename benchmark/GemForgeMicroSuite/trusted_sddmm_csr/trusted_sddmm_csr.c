@@ -389,9 +389,9 @@ int main(int argc, char **argv) {
 #ifdef PTTIME 
    #pragma omp parallel for schedule(static)
 #endif
-  for (uint64_t rid = 0; rid < 20000 /* m */; ++rid) {
+  for (uint64_t rid = 0; rid < 400 /* m */; ++rid) {
 	  //trusted_sddmm_csr(k, val, indx, &pntrb[i], &pntre[i], b, ldb, &c[i*ldc], ldc);
-	  trusted_sddmm_csr(&pntrb[rid], &pntre[rid], indx, &a[rid*ldb], b, &c[rid*ldc], ldb);
+	  trusted_sddmm_csr(&pntrb[rid], &pntre[rid], indx, &a[rid*lda], b, &c[rid*ldc], ldb);
   }
 
 #ifdef PSP
