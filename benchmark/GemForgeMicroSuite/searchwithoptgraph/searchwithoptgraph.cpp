@@ -90,7 +90,7 @@ __attribute__((noinline)) Value SearchWithOptGraph(
    const INDEXTYPE K_para,     //
    const INDEXTYPE nd_,        //
    const INDEXTYPE dimension_, //
-   std::vector<INDEXTYPE>& flags,
+   INDEXTYPE* flags,
    const VALUETYPE *data_mat,  //
    const VALUETYPE *norm_mat,  //
    VALUETYPE *query_mat, //
@@ -108,7 +108,8 @@ __attribute__((noinline)) Value SearchWithOptGraph(
 	//std::vector<Neighbor> retset(L_para);
 	std::vector<INDEXTYPE> init_ids(L_para);
 	//std::vector<INDEXTYPE> flags(nd_,0);
- 	std::fill(flags.begin(), flags.end(), 0);
+ 	//std::fill(flags.begin(), flags.end(), 0);
+  memset(flags, 0, nd_ * sizeof(INDEXTYPE));
     //flags.clear();
 
 	INDEXTYPE tmp_l = 0;
@@ -119,7 +120,7 @@ __attribute__((noinline)) Value SearchWithOptGraph(
     // modified
     for (INDEXTYPE j=pntrb[ep_]; j < pntre[ep_]; j++) {
        init_ids[tmp_l]= indx[j];
-       flags[j] = 1;
+       flags[indx[j]] = 1;
        tmp_l++;
     }
 
@@ -178,7 +179,6 @@ __attribute__((noinline)) Value SearchWithOptGraph(
         flags[id] = 1;
         filtered_indx[filtered_indx_end] = id;
         filtered_indx_end++;
-        std::cout << "SJ debug point: " << n << ", " << id << ", " << filtered_indx_end << ", " << pntrb[n] << ", " << pntre[n] << std::endl;
       }
 
 #ifdef PSP
@@ -196,7 +196,7 @@ __attribute__((noinline)) Value SearchWithOptGraph(
 //	    for (unsigned m = pntrb[n]; m < pntre[n]; ++m) {
 	    for (unsigned m = filtered_indx_begin; m < filtered_indx_end; ++m) {
         unsigned id = filtered_indx[m];
-        printf("k = %d, id = %d, n_id=%d\n", k, n, id);
+//        printf("k = %d, id = %d, n_id=%d\n", k, n, id);
         float norm_x = norm_mat[id];
         float dist=0;
         for(INDEXTYPE ii=0; ii<dimension_; ii=ii+1){
@@ -412,10 +412,11 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  //printf("pntrb[0] = %lu\n" ,pntrb[0]);
-  //printf("pntrb[1] = %lu\n" ,pntrb[1]);
-  //printf("pntrb[2] = %lu\n" ,pntrb[2]);
-  //printf("pntrb[3] = %lu\n" ,pntrb[3]);
+  printf("pntrb = %#x\n" , pntrb);
+  printf("pntrb[535292] = %lu\n" ,pntrb[535292]);
+  printf("pntrb[334029] = %lu\n" ,pntrb[334029]);
+  printf("pntrb[535294] = %lu\n" ,pntrb[535294]);
+  printf("pntrb[535295] = %lu\n" ,pntrb[535295]);
   // ===============================================================================//
 
   // ===============================================================================//
@@ -444,10 +445,11 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  //printf("pntre[0] = %lu\n" ,pntre[0]);
-  //printf("pntre[1] = %lu\n" ,pntre[1]);
-  //printf("pntre[2] = %lu\n" ,pntre[2]);
-  //printf("pntre[3] = %lu\n" ,pntre[3]);
+  printf("pntre = %#x\n" ,pntre);
+  printf("pntre[535292] = %lu\n" ,pntre[535292]);
+  printf("pntre[334029] = %lu\n" ,pntre[334029]);
+  printf("pntre[535294] = %lu\n" ,pntre[535294]);
+  printf("pntre[535295] = %lu\n" ,pntre[535295]);
   // ===============================================================================//
 
   // ==============================================================================//
@@ -557,11 +559,13 @@ int main(int argc, char **argv) {
     );
   }
 #endif
-  std::vector<INDEXTYPE> flags(num_node,0);
+  std::vector<INDEXTYPE*> flags(numThreads);
+  for (uint64_t i = 0; i < numThreads; i++) {
+    flags[i] = (INDEXTYPE*)aligned_alloc(CACHE_LINE_SIZE, total_num_node * sizeof(INDEXTYPE));
+  }
 #pragma omp parallel for schedule(static)
   for (INDEXTYPE i = 0; i < /* numThreads */ num_query; i++) {
-    std::cout << i << "th iteration" << std::endl;
-	  SearchWithOptGraph(ep_, L, K, num_node, num_dim, flags, b, norm, query + i * num_dim, indx, pntrb, pntre, res[i].data(), filtered_indx[i]);
+	  SearchWithOptGraph(ep_, L, K, num_node, num_dim, flags[i % numThreads], b, norm, query + i * num_dim, indx, pntrb, pntre, res[i].data(), filtered_indx[i]);
   }
 
 #ifdef PSP
