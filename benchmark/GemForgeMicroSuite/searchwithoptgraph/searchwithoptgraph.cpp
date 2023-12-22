@@ -12,7 +12,6 @@ using namespace std;
 //#include <efanna2e/index_nsg.h>
 //#include <efanna2e/util.h>
 
-#include <chrono>
 #include <string>
 
 
@@ -35,6 +34,12 @@ using namespace std;
 //#define CHECK
 
 //#define PSP
+
+//#define PROFILE
+#ifdef PROFILE
+#include <chrono>
+std::vector<double> profile_time(4, 0.0);
+#endif
 
 typedef float Value;
 
@@ -90,6 +95,7 @@ __attribute__((noinline)) Value SearchWithOptGraph(
    const INDEXTYPE K_para,     //
    const INDEXTYPE nd_,        //
    const INDEXTYPE dimension_, //
+   const INDEXTYPE curr_iter,
    INDEXTYPE* flags,
    const VALUETYPE *data_mat,  //
    const VALUETYPE *norm_mat,  //
@@ -109,8 +115,9 @@ __attribute__((noinline)) Value SearchWithOptGraph(
 	std::vector<INDEXTYPE> init_ids(L_para);
 	//std::vector<INDEXTYPE> flags(nd_,0);
  	//std::fill(flags.begin(), flags.end(), 0);
-  memset(flags, 0, nd_ * sizeof(INDEXTYPE));
+  //memset(flags, 0, nd_ * sizeof(INDEXTYPE));
     //flags.clear();
+  srand(0);
 
 	INDEXTYPE tmp_l = 0;
 	INDEXTYPE MaxM_ep =  pntre[ep_] - pntrb[ep_];	
@@ -119,8 +126,9 @@ __attribute__((noinline)) Value SearchWithOptGraph(
 
     // modified
     for (INDEXTYPE j=pntrb[ep_]; j < pntre[ep_]; j++) {
-       init_ids[tmp_l]= indx[j];
-       flags[indx[j]] = 1;
+       unsigned id = indx[j];
+       init_ids[tmp_l]= id;
+       flags[id] = curr_iter;
        tmp_l++;
     }
 
@@ -133,8 +141,8 @@ __attribute__((noinline)) Value SearchWithOptGraph(
 
     while (tmp_l < L) {
       unsigned id = rand() % nd_;
-      if (flags[id]) continue;
-      flags[id] = 1;
+      if (flags[id] == curr_iter) continue;
+      flags[id] = curr_iter;
       init_ids[tmp_l] = id;
       tmp_l++;
     }
@@ -156,7 +164,7 @@ __attribute__((noinline)) Value SearchWithOptGraph(
   	  }
   	  dist = -2*dist + norm_x;	  
   	  retset[i] = Neighbor(id, dist, true);
-  	  flags[id] = 1;
+  	  flags[id] = curr_iter;
   	  L++;
   	  //printf("i = %d, id = %d, dist = %f\n", i, id, dist);
   	}
@@ -173,29 +181,40 @@ __attribute__((noinline)) Value SearchWithOptGraph(
 
       uint64_t filtered_indx_begin = 0;
       uint64_t filtered_indx_end = 0;
+#ifdef PROFILE
+      auto visited_list_filter_begin = std::chrono::high_resolution_clock::now();
+#endif
       for (unsigned m = pntrb[n]; m < pntre[n]; ++m) {
         unsigned id = indx[m];
-        if (flags[id]) continue;
-        flags[id] = 1;
+        if (flags[id] == curr_iter) continue;
+        flags[id] = curr_iter;
         filtered_indx[filtered_indx_end] = id;
+//        printf("&filtered_indx[%lu]: %#x, Value: %lu\n", filtered_indx_end, &filtered_indx[filtered_indx_end], filtered_indx[filtered_indx_end]);
         filtered_indx_end++;
       }
+#ifdef PROFILE
+      auto visited_list_filter_end = std::chrono::high_resolution_clock::now();
+      std::chrono::duration<double> visited_list_filter_diff = visited_list_filter_end - visited_list_filter_begin;
+      profile_time[0] += visited_list_filter_diff.count() * 1000000;
+#endif
+//      std::cout << "# filtered_indx: " << filtered_indx_end - filtered_indx_begin << ", filtered_indx_begin: " << filtered_indx_begin << ", filtered_indx_end: " << filtered_indx_end << std::endl;
 
 #ifdef PSP
-      if (filtered_indx_begin < filtered_indx_end) {
-        __asm__ volatile (
-            "stream.input.offset.begin  $0, %[filtered_indx_begin] \t\n"
-            "stream.input.offset.end  $0, %[filtered_indx_end] \t\n"
-            "stream.input.ready $0  \t\n"
-            :
-            :[filtered_indx_begin]"r"(filtered_indx_begin), [filtered_indx_end]"r"(filtered_indx_end)
-        );
-      }
+      __asm__ volatile (
+          "stream.input.offset.begin  $0, %[filtered_indx_begin] \t\n"
+          "stream.input.offset.end  $0, %[filtered_indx_end] \t\n"
+          "stream.input.ready $0  \t\n"
+          :
+          :[filtered_indx_begin]"r"(filtered_indx_begin), [filtered_indx_end]"r"(filtered_indx_end)
+     );
 #endif
 
 //	    for (unsigned m = pntrb[n]; m < pntre[n]; ++m) {
 	    for (unsigned m = filtered_indx_begin; m < filtered_indx_end; ++m) {
         unsigned id = filtered_indx[m];
+#ifdef PROFILE
+        auto dist_compute_begin = std::chrono::high_resolution_clock::now();
+#endif
 //        printf("k = %d, id = %d, n_id=%d\n", k, n, id);
         float norm_x = norm_mat[id];
         float dist=0;
@@ -203,24 +222,33 @@ __attribute__((noinline)) Value SearchWithOptGraph(
           dist += data_mat[dimension_*id+ii] * query_mat[ii];		
         }
         dist = -2*dist + norm_x;	  
+#ifdef PROFILE
+        auto dist_compute_end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> dist_compute_diff = dist_compute_end - dist_compute_begin;
+        profile_time[1] += dist_compute_diff.count() * 1000000;
+#endif
 
 	      if (dist >= retset[L - 1].distance) continue;
+#ifdef PROFILE
+        auto sort_begin = std::chrono::high_resolution_clock::now();
+#endif
 	      Neighbor nn(id, dist, true);
 	      int r = InsertIntoPool(retset.data(), L, nn);
 	
 	      // if(L+1 < retset.size()) ++L;
 	      if (r < nk) nk = r;
+#ifdef PROFILE
+        auto sort_end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> sort_diff = sort_end - sort_begin;
+        profile_time[2] += sort_diff.count() * 1000000;
+#endif
 	    }
-	  }
-	  if (nk <= k)
-	    k = nk;
-	  else
-      ++k;
     }
-//    for (INDEXTYPE i = 0; i < K_para; i++) {
-//      indices[i] = retset[i].id;
-//      printf("retset[%d].id = %lu, indices[%d] = %d\n", i, retset[i].id,i,indices[i]);
-//    }
+    if (nk <= k)
+      k = nk;
+    else
+      ++k;
+  }
 	return 0;
 }
 
@@ -412,11 +440,10 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  printf("pntrb = %#x\n" , pntrb);
-  printf("pntrb[535292] = %lu\n" ,pntrb[535292]);
-  printf("pntrb[334029] = %lu\n" ,pntrb[334029]);
-  printf("pntrb[535294] = %lu\n" ,pntrb[535294]);
-  printf("pntrb[535295] = %lu\n" ,pntrb[535295]);
+//  printf("pntrb[0] = %lu\n" ,pntrb[0]);
+//  printf("pntrb[1] = %lu\n" ,pntrb[1]);
+//  printf("pntrb[2] = %lu\n" ,pntrb[2]);
+//  printf("pntrb[3] = %lu\n" ,pntrb[3]);
   // ===============================================================================//
 
   // ===============================================================================//
@@ -445,11 +472,10 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  printf("pntre = %#x\n" ,pntre);
-  printf("pntre[535292] = %lu\n" ,pntre[535292]);
-  printf("pntre[334029] = %lu\n" ,pntre[334029]);
-  printf("pntre[535294] = %lu\n" ,pntre[535294]);
-  printf("pntre[535295] = %lu\n" ,pntre[535295]);
+//  printf("pntre[0] = %lu\n" ,pntre[0]);
+//  printf("pntre[1] = %lu\n" ,pntre[1]);
+//  printf("pntre[2] = %lu\n" ,pntre[2]);
+//  printf("pntre[3] = %lu\n" ,pntre[3]);
   // ===============================================================================//
 
   // ==============================================================================//
@@ -524,8 +550,8 @@ int main(int argc, char **argv) {
   //printf("norm[3] = %lu\n" ,norm[3]);
   // ===============================================================================//
 
-  std::vector<INDEXTYPE*> filtered_indx(num_query);
-  for (uint64_t i = 0; i < num_query; i++) {
+  std::vector<INDEXTYPE*> filtered_indx(numThreads);
+  for (uint64_t i = 0; i < numThreads; i++) {
     filtered_indx[i] = (INDEXTYPE*)aligned_alloc(CACHE_LINE_SIZE, 100 * sizeof(INDEXTYPE));
     memset(filtered_indx[i], 0, 100 * sizeof(INDEXTYPE));
   }
@@ -533,6 +559,11 @@ int main(int argc, char **argv) {
   std::vector<std::vector<INDEXTYPE>> res(num_query);
   for (INDEXTYPE i = 0; i < num_query; i++) res[i].resize(K);
 
+  std::vector<INDEXTYPE*> flags(numThreads);
+  for (uint64_t i = 0; i < numThreads; i++) {
+    flags[i] = (INDEXTYPE*)aligned_alloc(CACHE_LINE_SIZE, total_num_node * sizeof(INDEXTYPE));
+    memset(flags[i], num_query, total_num_node * sizeof(INDEXTYPE));
+  }
 #ifdef GEM_FORGE
   gf_detail_sim_start();
 #endif
@@ -559,13 +590,10 @@ int main(int argc, char **argv) {
     );
   }
 #endif
-  std::vector<INDEXTYPE*> flags(numThreads);
-  for (uint64_t i = 0; i < numThreads; i++) {
-    flags[i] = (INDEXTYPE*)aligned_alloc(CACHE_LINE_SIZE, total_num_node * sizeof(INDEXTYPE));
-  }
 #pragma omp parallel for schedule(static)
-  for (INDEXTYPE i = 0; i < /* numThreads */ num_query; i++) {
-	  SearchWithOptGraph(ep_, L, K, num_node, num_dim, flags[i % numThreads], b, norm, query + i * num_dim, indx, pntrb, pntre, res[i].data(), filtered_indx[i]);
+  for (INDEXTYPE i = 0; i < numThreads * 2 /* num_query */; i++) {
+    int tid = omp_get_thread_num();
+	  SearchWithOptGraph(ep_, L, K, num_node, num_dim, i, flags[tid], b, norm, query + i * num_dim, indx, pntrb, pntre, res[i].data(), filtered_indx[tid]);
   }
 
 #ifdef PSP
@@ -581,6 +609,8 @@ int main(int argc, char **argv) {
   gf_detail_sim_end();
 #endif
 
+  std::cout << "Simulation end" << std::endl;
+
 #ifdef CHECK
   //uint64_t err_cnt = 0;
   //Value* C1 = (Value*) aligned_alloc(CACHE_LINE_SIZE, file_size * sizeof(Value));
@@ -595,10 +625,15 @@ int main(int argc, char **argv) {
   //  err_cnt += (C0[i] != C1[i]);
   //}
   //printf("Error count = %ld\n", err_cnt);
+  //
+  //free(C1);
 #endif
 
-#ifdef CHECK
-  //free(C1);
+#ifdef PROFILE
+  printf("timer[0]: %lf\n", profile_time[0]);
+  printf("timer[1]: %lf\n", profile_time[1]);
+  printf("timer[2]: %lf\n", profile_time[2]);
+  printf("total_timer: %lf\n", profile_time[0] + profile_time[1] + profile_time[2]);
 #endif
 
   for (uint64_t i = 0; i < numThreads; i++) {
