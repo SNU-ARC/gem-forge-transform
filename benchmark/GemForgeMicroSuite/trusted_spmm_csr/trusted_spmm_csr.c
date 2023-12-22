@@ -350,7 +350,7 @@ int main(int argc, char **argv) {
 #ifdef PTTIME 
    #pragma omp parallel for schedule(static)
 #endif
-  for (uint64_t i = 0; i < 1000/*m*/; i++) {
+  for (uint64_t i = 0; i < m; i++) {
 	  trusted_spmm_csr(k, val, indx, &pntrb[i], &pntre[i], b, ldb, &c[i*ldc], ldc);
   }
 
