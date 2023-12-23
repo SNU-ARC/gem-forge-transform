@@ -46,15 +46,21 @@ __attribute__((noinline)) Value trusted_sddmm_csr (
    INDEXTYPE offset_begin = *pntrb;
    INDEXTYPE offset_end = *pntre;
 #ifdef PSP
-   if (offset_begin < offset_end) {
-     __asm__ volatile (
-         "stream.input.offset.begin  $0, %[offset_begin] \t\n" // Input stream (offset_begin)
-         "stream.input.offset.end  $0, %[offset_end] \t\n"  // Input stream (offset_end)
-         "stream.input.ready  $0 \t\n"  // Input stream ready
-         :
-         :[offset_begin]"r"(offset_begin), [offset_end]"r"(offset_end)
-     );
-   }
+   __asm__ volatile (
+       "stream.input.offset.begin  $0, %[offset_begin] \t\n" // Input stream (offset_begin)
+       "stream.input.offset.end  $0, %[offset_end] \t\n"  // Input stream (offset_end)
+       "stream.input.ready  $0 \t\n"  // Input stream ready
+       :
+       :[offset_begin]"r"(offset_begin), [offset_end]"r"(offset_end)
+   );
+
+   __asm__ volatile (
+       "stream.input.offset.begin  $1, %[offset_begin] \t\n" // Input stream (offset_begin)
+       "stream.input.offset.end  $1, %[offset_end] \t\n"  // Input stream (offset_end)
+       "stream.input.ready  $1 \t\n"  // Input stream ready
+       :
+       :[offset_begin]"r"(offset_begin), [offset_end]"r"(offset_end)
+   );
 #endif
    // X = a, Y = b, O = c, dim = k
    // indptr[rid]      = pntrb[rid]   = offset_begin
@@ -340,9 +346,13 @@ int main(int argc, char **argv) {
     return 0;
   }
 
+
 #ifdef GEM_FORGE
   gf_detail_sim_start();
 #endif
+
+  INDEXTYPE* a_indx = (INDEXTYPE*) aligned_alloc(CACHE_LINE_SIZE,  nonzero * sizeof(INDEXTYPE));
+  memset(a_indx, 0, nonzero * sizeof(INDEXTYPE)); 
 
 #ifdef WARM_CACHE
 //  WARM_UP_ARRAY(A, file_size);
@@ -374,6 +384,21 @@ int main(int argc, char **argv) {
         "stream.cfg.val.base  $0, %[val_base_addr] \t\n"    // Configure stream (base address of value)
         "stream.cfg.val.gran  $0, %[val_granularity] \t\n"  // Configure stream (access granularity of value)
         "stream.cfg.ready $0 \t\n"  // Configure steam ready
+        :
+        :[idx_base_addr]"r"(idx_base_addr), [idx_granularity]"r"(idx_granularity),
+        [val_base_addr]"r"(val_base_addr), [val_granularity]"r"(val_granularity)
+    );
+
+    idx_base_addr = a_indx;
+    idx_granularity = sizeof(INDEXTYPE);
+    val_base_addr = a;
+    val_granularity = k * sizeof(VALUETYPE);
+    __asm__ volatile (
+        "stream.cfg.idx.base  $1, %[idx_base_addr] \t\n"    // Configure stream (base address of index)
+        "stream.cfg.idx.gran  $1, %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
+        "stream.cfg.val.base  $1, %[val_base_addr] \t\n"    // Configure stream (base address of value)
+        "stream.cfg.val.gran  $1, %[val_granularity] \t\n"  // Configure stream (access granularity of value)
+        "stream.cfg.ready $1 \t\n"  // Configure steam ready
         :
         :[idx_base_addr]"r"(idx_base_addr), [idx_granularity]"r"(idx_granularity),
         [val_base_addr]"r"(val_base_addr), [val_granularity]"r"(val_granularity)
