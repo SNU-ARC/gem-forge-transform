@@ -104,7 +104,8 @@ __attribute__((noinline)) Value SearchWithOptGraph(
    const INDEXTYPE *pntrb,     // starting index for rowptr of csr of sparse matrix
    const INDEXTYPE *pntre,     // ending index for rowptr of csr of sparse matrix 
          INDEXTYPE *indices,
-         INDEXTYPE *filtered_indx
+         INDEXTYPE *filtered_indx,
+         INDEXTYPE *query_indx
 ){
 
 	INDEXTYPE L = L_para;
@@ -116,6 +117,8 @@ __attribute__((noinline)) Value SearchWithOptGraph(
 	//std::vector<INDEXTYPE> flags(nd_,0);
  	//std::fill(flags.begin(), flags.end(), 0);
   //memset(flags, 0, nd_ * sizeof(INDEXTYPE));
+  for (int i = 0; i < 100; i++)
+    query_indx[i] = curr_iter;
     //flags.clear();
   srand(0);
 
@@ -153,20 +156,54 @@ __attribute__((noinline)) Value SearchWithOptGraph(
   	//  _mm_prefetch(opt_graph_ + node_size * id, _MM_HINT_T0);
   	//}
 
-  	L = 0;
-  	for (unsigned i = 0; i < init_ids.size(); i++) {
+    uint64_t filtered_indx_begin = 0;
+    uint64_t filtered_indx_end = 0;
+    for (unsigned i = 0; i < init_ids.size(); i++) {
   	  unsigned id = init_ids[i];
-  	  if (id >= nd_) continue;
-  	  float norm_x = norm_mat[id]; 
+      if (id >= nd_) continue;
+      flags[id] = curr_iter;
+      filtered_indx[filtered_indx_end] = id;
+      filtered_indx_end++;
+    }
+
+#ifdef PSP
+    __asm__ volatile (
+        "stream.input.offset.begin  $0, %[filtered_indx_begin] \t\n"
+        "stream.input.offset.end  $0, %[filtered_indx_end] \t\n"
+        "stream.input.ready $0  \t\n"
+        :
+        :[filtered_indx_begin]"r"(filtered_indx_begin), [filtered_indx_end]"r"(filtered_indx_end)
+    );
+
+//    __asm__ volatile (
+//        "stream.input.offset.begin  $1, %[filtered_indx_begin] \t\n"
+//        "stream.input.offset.end  $1, %[filtered_indx_end] \t\n"
+//        "stream.input.ready $1  \t\n"
+//        :
+//        :[filtered_indx_begin]"r"(filtered_indx_begin), [filtered_indx_end]"r"(filtered_indx_end)
+//    );
+//
+//    __asm__ volatile (
+//        "stream.input.offset.begin  $2, %[filtered_indx_begin] \t\n"
+//        "stream.input.offset.end  $2, %[filtered_indx_end] \t\n"
+//        "stream.input.ready $2  \t\n"
+//        :
+//        :[filtered_indx_begin]"r"(filtered_indx_begin), [filtered_indx_end]"r"(filtered_indx_end)
+//    );
+#endif
+
+  	L = 0;
+  	for (unsigned i = filtered_indx_begin; i < filtered_indx_end; i++) {
+  	  unsigned id = filtered_indx[i];
+  	  float norm_x = data_mat[(dimension_ + 1)*id];//norm_mat[id]; 
   	  float dist=0;
   	  for(INDEXTYPE ii=0; ii<dimension_; ii=ii+1){
-  	  	dist += data_mat[dimension_*id+ii] * query_mat[ii];		
+  	  	dist += data_mat[(dimension_+1)*id+ii+1] * query_mat[ii];		
   	  }
   	  dist = -2*dist + norm_x;	  
   	  retset[i] = Neighbor(id, dist, true);
   	  flags[id] = curr_iter;
   	  L++;
-  	  //printf("i = %d, id = %d, dist = %f\n", i, id, dist);
   	}
 
 	std::sort(retset.begin(), retset.begin() + L);
@@ -179,8 +216,8 @@ __attribute__((noinline)) Value SearchWithOptGraph(
 	    retset[k].flag = false;
 	    INDEXTYPE n = retset[k].id;
 
-      uint64_t filtered_indx_begin = 0;
-      uint64_t filtered_indx_end = 0;
+      filtered_indx_begin = 0;
+      filtered_indx_end = 0;
 #ifdef PROFILE
       auto visited_list_filter_begin = std::chrono::high_resolution_clock::now();
 #endif
@@ -207,6 +244,22 @@ __attribute__((noinline)) Value SearchWithOptGraph(
           :
           :[filtered_indx_begin]"r"(filtered_indx_begin), [filtered_indx_end]"r"(filtered_indx_end)
      );
+      
+//      __asm__ volatile (
+//          "stream.input.offset.begin  $1, %[filtered_indx_begin] \t\n"
+//          "stream.input.offset.end  $1, %[filtered_indx_end] \t\n"
+//          "stream.input.ready $1  \t\n"
+//          :
+//          :[filtered_indx_begin]"r"(filtered_indx_begin), [filtered_indx_end]"r"(filtered_indx_end)
+//     );
+//      
+//      __asm__ volatile (
+//          "stream.input.offset.begin  $2, %[filtered_indx_begin] \t\n"
+//          "stream.input.offset.end  $2, %[filtered_indx_end] \t\n"
+//          "stream.input.ready $2  \t\n"
+//          :
+//          :[filtered_indx_begin]"r"(filtered_indx_begin), [filtered_indx_end]"r"(filtered_indx_end)
+//     );
 #endif
 
 //	    for (unsigned m = pntrb[n]; m < pntre[n]; ++m) {
@@ -216,10 +269,10 @@ __attribute__((noinline)) Value SearchWithOptGraph(
         auto dist_compute_begin = std::chrono::high_resolution_clock::now();
 #endif
 //        printf("k = %d, id = %d, n_id=%d\n", k, n, id);
-        float norm_x = norm_mat[id];
+        float norm_x = data_mat[(dimension_ + 1) * id];//norm_mat[id];
         float dist=0;
         for(INDEXTYPE ii=0; ii<dimension_; ii=ii+1){
-          dist += data_mat[dimension_*id+ii] * query_mat[ii];		
+          dist += data_mat[(dimension_+1)*id+ii+1] * query_mat[ii];		
         }
         dist = -2*dist + norm_x;	  
 #ifdef PROFILE
@@ -396,11 +449,11 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  num_node = (sz-sizeof(uint64_t))/(sizeof(VALUETYPE)*num_dim);
+  num_node = (sz-sizeof(uint64_t))/(sizeof(VALUETYPE)*(num_dim + 1));
   printf("num_dim = %lu, num_node = %lu\n", num_dim, num_node);
-  VALUETYPE* b = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  num_node*num_dim * sizeof(VALUETYPE));
-  if (sz == (num_node*num_dim) * sizeof(VALUETYPE) + sizeof(uint64_t)) {
-    fread((void*)b, sizeof(VALUETYPE), num_node*num_dim, fp_mtx2);
+  VALUETYPE* b = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  num_node*(num_dim+1) * sizeof(VALUETYPE));
+  if (sz == (num_node*(num_dim+1)) * sizeof(VALUETYPE) + sizeof(uint64_t)) {
+    fread((void*)b, sizeof(VALUETYPE), num_node*(num_dim+1), fp_mtx2);
   }
   else {
       printf("size of file(%s) is wrong\n", filename);
@@ -551,9 +604,12 @@ int main(int argc, char **argv) {
   // ===============================================================================//
 
   std::vector<INDEXTYPE*> filtered_indx(numThreads);
+  std::vector<INDEXTYPE*> query_indx(numThreads);
   for (uint64_t i = 0; i < numThreads; i++) {
     filtered_indx[i] = (INDEXTYPE*)aligned_alloc(CACHE_LINE_SIZE, 100 * sizeof(INDEXTYPE));
+    query_indx[i] = (INDEXTYPE*)aligned_alloc(CACHE_LINE_SIZE, 100 * sizeof(INDEXTYPE));
     memset(filtered_indx[i], 0, 100 * sizeof(INDEXTYPE));
+//    memset(query_indx[i], 0, 100 * sizeof(INDEXTYPE));
   }
 
   std::vector<std::vector<INDEXTYPE>> res(num_query);
@@ -577,7 +633,7 @@ int main(int argc, char **argv) {
     INDEXTYPE* idx_base_addr = filtered_indx[i];
     uint64_t idx_granularity = sizeof(INDEXTYPE);
     VALUETYPE* val_base_addr = b;
-    uint64_t val_granularity = num_dim * sizeof(VALUETYPE);
+    uint64_t val_granularity = (num_dim + 1) * sizeof(VALUETYPE);
     __asm__ volatile (
         "stream.cfg.idx.base  $0, %[idx_base_addr] \t\n"    // Configure stream (base address of index)
         "stream.cfg.idx.gran  $0, %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
@@ -588,12 +644,40 @@ int main(int argc, char **argv) {
         :[idx_base_addr]"r"(idx_base_addr), [idx_granularity]"r"(idx_granularity),
         [val_base_addr]"r"(val_base_addr), [val_granularity]"r"(val_granularity)
     );
+
+//    val_base_addr = norm;
+//    val_granularity = sizeof(VALUETYPE);
+//    __asm__ volatile (
+//        "stream.cfg.idx.base  $1, %[idx_base_addr] \t\n"    // Configure stream (base address of index)
+//        "stream.cfg.idx.gran  $1, %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
+//        "stream.cfg.val.base  $1, %[val_base_addr] \t\n"    // Configure stream (base address of value)
+//        "stream.cfg.val.gran  $1, %[val_granularity] \t\n"  // Configure stream (access granularity of value)
+//        "stream.cfg.ready $1 \t\n"  // Configure steam ready
+//        :
+//        :[idx_base_addr]"r"(idx_base_addr), [idx_granularity]"r"(idx_granularity),
+//        [val_base_addr]"r"(val_base_addr), [val_granularity]"r"(val_granularity)
+//    );
+//
+//    idx_base_addr = query_indx[i];
+//    idx_granularity = sizeof(INDEXTYPE);
+//    val_base_addr = query;
+//    val_granularity = num_dim * sizeof(VALUETYPE);
+//    __asm__ volatile (
+//        "stream.cfg.idx.base  $2, %[idx_base_addr] \t\n"    // Configure stream (base address of index)
+//        "stream.cfg.idx.gran  $2, %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
+//        "stream.cfg.val.base  $2, %[val_base_addr] \t\n"    // Configure stream (base address of value)
+//        "stream.cfg.val.gran  $2, %[val_granularity] \t\n"  // Configure stream (access granularity of value)
+//        "stream.cfg.ready $2 \t\n"  // Configure steam ready
+//        :
+//        :[idx_base_addr]"r"(idx_base_addr), [idx_granularity]"r"(idx_granularity),
+//        [val_base_addr]"r"(val_base_addr), [val_granularity]"r"(val_granularity)
+//    );
   }
 #endif
 #pragma omp parallel for schedule(static)
-  for (INDEXTYPE i = 0; i < numThreads * 2 /* num_query */; i++) {
+  for (INDEXTYPE i = 0; i < num_query; i++) {
     int tid = omp_get_thread_num();
-	  SearchWithOptGraph(ep_, L, K, num_node, num_dim, i, flags[tid], b, norm, query + i * num_dim, indx, pntrb, pntre, res[i].data(), filtered_indx[tid]);
+	  SearchWithOptGraph(ep_, L, K, num_node, num_dim, i, flags[tid], b, norm, query + i * num_dim, indx, pntrb, pntre, res[i].data(), filtered_indx[tid], query_indx[tid]);
   }
 
 #ifdef PSP
@@ -601,6 +685,8 @@ int main(int argc, char **argv) {
   for (uint64_t i = 0; i < numThreads; i++) {
     __asm__ volatile (
         "stream.terminate $0 \t\n"
+//        "stream.terminate $1 \t\n"
+//        "stream.terminate $2 \t\n"
     );
   }
 #endif
