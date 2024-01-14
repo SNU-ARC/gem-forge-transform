@@ -12,7 +12,6 @@ using namespace std;
 //#include <efanna2e/index_nsg.h>
 //#include <efanna2e/util.h>
 
-#include <chrono>
 #include <string>
 
 
@@ -35,6 +34,12 @@ using namespace std;
 //#define CHECK
 
 //#define PSP
+
+//#define PROFILE
+#ifdef PROFILE
+#include <chrono>
+std::vector<double> profile_time(4, 0.0);
+#endif
 
 typedef float Value;
 
@@ -90,7 +95,8 @@ __attribute__((noinline)) Value SearchWithOptGraph(
    const INDEXTYPE K_para,     //
    const INDEXTYPE nd_,        //
    const INDEXTYPE dimension_, //
-   std::vector<INDEXTYPE>& flags,
+   const INDEXTYPE curr_iter,
+   INDEXTYPE* flags,
    const VALUETYPE *data_mat,  //
    const VALUETYPE *norm_mat,  //
    VALUETYPE *query_mat, //
@@ -98,7 +104,8 @@ __attribute__((noinline)) Value SearchWithOptGraph(
    const INDEXTYPE *pntrb,     // starting index for rowptr of csr of sparse matrix
    const INDEXTYPE *pntre,     // ending index for rowptr of csr of sparse matrix 
          INDEXTYPE *indices,
-         INDEXTYPE *filtered_indx
+         INDEXTYPE *filtered_indx,
+         INDEXTYPE *query_indx
 ){
 
 	INDEXTYPE L = L_para;
@@ -108,8 +115,12 @@ __attribute__((noinline)) Value SearchWithOptGraph(
 	//std::vector<Neighbor> retset(L_para);
 	std::vector<INDEXTYPE> init_ids(L_para);
 	//std::vector<INDEXTYPE> flags(nd_,0);
- 	std::fill(flags.begin(), flags.end(), 0);
+ 	//std::fill(flags.begin(), flags.end(), 0);
+  //memset(flags, 0, nd_ * sizeof(INDEXTYPE));
+  for (int i = 0; i < 100; i++)
+    query_indx[i] = curr_iter;
     //flags.clear();
+  srand(0);
 
 	INDEXTYPE tmp_l = 0;
 	INDEXTYPE MaxM_ep =  pntre[ep_] - pntrb[ep_];	
@@ -118,8 +129,9 @@ __attribute__((noinline)) Value SearchWithOptGraph(
 
     // modified
     for (INDEXTYPE j=pntrb[ep_]; j < pntre[ep_]; j++) {
-       init_ids[tmp_l]= indx[j];
-       flags[j] = 1;
+       unsigned id = indx[j];
+       init_ids[tmp_l]= id;
+       flags[id] = curr_iter;
        tmp_l++;
     }
 
@@ -132,8 +144,8 @@ __attribute__((noinline)) Value SearchWithOptGraph(
 
     while (tmp_l < L) {
       unsigned id = rand() % nd_;
-      if (flags[id]) continue;
-      flags[id] = 1;
+      if (flags[id] == curr_iter) continue;
+      flags[id] = curr_iter;
       init_ids[tmp_l] = id;
       tmp_l++;
     }
@@ -144,20 +156,54 @@ __attribute__((noinline)) Value SearchWithOptGraph(
   	//  _mm_prefetch(opt_graph_ + node_size * id, _MM_HINT_T0);
   	//}
 
-  	L = 0;
-  	for (unsigned i = 0; i < init_ids.size(); i++) {
+    uint64_t filtered_indx_begin = 0;
+    uint64_t filtered_indx_end = 0;
+    for (unsigned i = 0; i < init_ids.size(); i++) {
   	  unsigned id = init_ids[i];
-  	  if (id >= nd_) continue;
-  	  float norm_x = norm_mat[id]; 
+      if (id >= nd_) continue;
+      flags[id] = curr_iter;
+      filtered_indx[filtered_indx_end] = id;
+      filtered_indx_end++;
+    }
+
+#ifdef PSP
+    __asm__ volatile (
+        "stream.input.offset.begin  $0, %[filtered_indx_begin] \t\n"
+        "stream.input.offset.end  $0, %[filtered_indx_end] \t\n"
+        "stream.input.ready $0  \t\n"
+        :
+        :[filtered_indx_begin]"r"(filtered_indx_begin), [filtered_indx_end]"r"(filtered_indx_end)
+    );
+
+//    __asm__ volatile (
+//        "stream.input.offset.begin  $1, %[filtered_indx_begin] \t\n"
+//        "stream.input.offset.end  $1, %[filtered_indx_end] \t\n"
+//        "stream.input.ready $1  \t\n"
+//        :
+//        :[filtered_indx_begin]"r"(filtered_indx_begin), [filtered_indx_end]"r"(filtered_indx_end)
+//    );
+//
+//    __asm__ volatile (
+//        "stream.input.offset.begin  $2, %[filtered_indx_begin] \t\n"
+//        "stream.input.offset.end  $2, %[filtered_indx_end] \t\n"
+//        "stream.input.ready $2  \t\n"
+//        :
+//        :[filtered_indx_begin]"r"(filtered_indx_begin), [filtered_indx_end]"r"(filtered_indx_end)
+//    );
+#endif
+
+  	L = 0;
+  	for (unsigned i = filtered_indx_begin; i < filtered_indx_end; i++) {
+  	  unsigned id = filtered_indx[i];
+  	  float norm_x = data_mat[(dimension_ + 1)*id];//norm_mat[id]; 
   	  float dist=0;
   	  for(INDEXTYPE ii=0; ii<dimension_; ii=ii+1){
-  	  	dist += data_mat[dimension_*id+ii] * query_mat[ii];		
+  	  	dist += data_mat[(dimension_+1)*id+ii+1] * query_mat[ii];		
   	  }
   	  dist = -2*dist + norm_x;	  
   	  retset[i] = Neighbor(id, dist, true);
-  	  flags[id] = 1;
+  	  flags[id] = curr_iter;
   	  L++;
-  	  //printf("i = %d, id = %d, dist = %f\n", i, id, dist);
   	}
 
 	std::sort(retset.begin(), retset.begin() + L);
@@ -170,57 +216,92 @@ __attribute__((noinline)) Value SearchWithOptGraph(
 	    retset[k].flag = false;
 	    INDEXTYPE n = retset[k].id;
 
-      uint64_t filtered_indx_begin = 0;
-      uint64_t filtered_indx_end = 0;
+      filtered_indx_begin = 0;
+      filtered_indx_end = 0;
+#ifdef PROFILE
+      auto visited_list_filter_begin = std::chrono::high_resolution_clock::now();
+#endif
       for (unsigned m = pntrb[n]; m < pntre[n]; ++m) {
         unsigned id = indx[m];
-        if (flags[id]) continue;
-        flags[id] = 1;
+        if (flags[id] == curr_iter) continue;
+        flags[id] = curr_iter;
         filtered_indx[filtered_indx_end] = id;
+//        printf("&filtered_indx[%lu]: %#x, Value: %lu\n", filtered_indx_end, &filtered_indx[filtered_indx_end], filtered_indx[filtered_indx_end]);
         filtered_indx_end++;
-        std::cout << "SJ debug point: " << n << ", " << id << ", " << filtered_indx_end << ", " << pntrb[n] << ", " << pntre[n] << std::endl;
       }
+#ifdef PROFILE
+      auto visited_list_filter_end = std::chrono::high_resolution_clock::now();
+      std::chrono::duration<double> visited_list_filter_diff = visited_list_filter_end - visited_list_filter_begin;
+      profile_time[0] += visited_list_filter_diff.count() * 1000000;
+#endif
+//      std::cout << "# filtered_indx: " << filtered_indx_end - filtered_indx_begin << ", filtered_indx_begin: " << filtered_indx_begin << ", filtered_indx_end: " << filtered_indx_end << std::endl;
 
 #ifdef PSP
-      if (filtered_indx_begin < filtered_indx_end) {
-        __asm__ volatile (
-            "stream.input.offset.begin  $0, %[filtered_indx_begin] \t\n"
-            "stream.input.offset.end  $0, %[filtered_indx_end] \t\n"
-            "stream.input.ready $0  \t\n"
-            :
-            :[filtered_indx_begin]"r"(filtered_indx_begin), [filtered_indx_end]"r"(filtered_indx_end)
-        );
-      }
+      __asm__ volatile (
+          "stream.input.offset.begin  $0, %[filtered_indx_begin] \t\n"
+          "stream.input.offset.end  $0, %[filtered_indx_end] \t\n"
+          "stream.input.ready $0  \t\n"
+          :
+          :[filtered_indx_begin]"r"(filtered_indx_begin), [filtered_indx_end]"r"(filtered_indx_end)
+     );
+      
+//      __asm__ volatile (
+//          "stream.input.offset.begin  $1, %[filtered_indx_begin] \t\n"
+//          "stream.input.offset.end  $1, %[filtered_indx_end] \t\n"
+//          "stream.input.ready $1  \t\n"
+//          :
+//          :[filtered_indx_begin]"r"(filtered_indx_begin), [filtered_indx_end]"r"(filtered_indx_end)
+//     );
+//      
+//      __asm__ volatile (
+//          "stream.input.offset.begin  $2, %[filtered_indx_begin] \t\n"
+//          "stream.input.offset.end  $2, %[filtered_indx_end] \t\n"
+//          "stream.input.ready $2  \t\n"
+//          :
+//          :[filtered_indx_begin]"r"(filtered_indx_begin), [filtered_indx_end]"r"(filtered_indx_end)
+//     );
 #endif
 
 //	    for (unsigned m = pntrb[n]; m < pntre[n]; ++m) {
 	    for (unsigned m = filtered_indx_begin; m < filtered_indx_end; ++m) {
         unsigned id = filtered_indx[m];
-        printf("k = %d, id = %d, n_id=%d\n", k, n, id);
-        float norm_x = norm_mat[id];
+#ifdef PROFILE
+        auto dist_compute_begin = std::chrono::high_resolution_clock::now();
+#endif
+//        printf("k = %d, id = %d, n_id=%d\n", k, n, id);
+        float norm_x = data_mat[(dimension_ + 1) * id];//norm_mat[id];
         float dist=0;
         for(INDEXTYPE ii=0; ii<dimension_; ii=ii+1){
-          dist += data_mat[dimension_*id+ii] * query_mat[ii];		
+          dist += data_mat[(dimension_+1)*id+ii+1] * query_mat[ii];		
         }
         dist = -2*dist + norm_x;	  
+#ifdef PROFILE
+        auto dist_compute_end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> dist_compute_diff = dist_compute_end - dist_compute_begin;
+        profile_time[1] += dist_compute_diff.count() * 1000000;
+#endif
 
 	      if (dist >= retset[L - 1].distance) continue;
+#ifdef PROFILE
+        auto sort_begin = std::chrono::high_resolution_clock::now();
+#endif
 	      Neighbor nn(id, dist, true);
 	      int r = InsertIntoPool(retset.data(), L, nn);
 	
 	      // if(L+1 < retset.size()) ++L;
 	      if (r < nk) nk = r;
+#ifdef PROFILE
+        auto sort_end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> sort_diff = sort_end - sort_begin;
+        profile_time[2] += sort_diff.count() * 1000000;
+#endif
 	    }
-	  }
-	  if (nk <= k)
-	    k = nk;
-	  else
-      ++k;
     }
-//    for (INDEXTYPE i = 0; i < K_para; i++) {
-//      indices[i] = retset[i].id;
-//      printf("retset[%d].id = %lu, indices[%d] = %d\n", i, retset[i].id,i,indices[i]);
-//    }
+    if (nk <= k)
+      k = nk;
+    else
+      ++k;
+  }
 	return 0;
 }
 
@@ -368,11 +449,11 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  num_node = (sz-sizeof(uint64_t))/(sizeof(VALUETYPE)*num_dim);
+  num_node = (sz-sizeof(uint64_t))/(sizeof(VALUETYPE)*(num_dim + 1));
   printf("num_dim = %lu, num_node = %lu\n", num_dim, num_node);
-  VALUETYPE* b = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  num_node*num_dim * sizeof(VALUETYPE));
-  if (sz == (num_node*num_dim) * sizeof(VALUETYPE) + sizeof(uint64_t)) {
-    fread((void*)b, sizeof(VALUETYPE), num_node*num_dim, fp_mtx2);
+  VALUETYPE* b = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  num_node*(num_dim+1) * sizeof(VALUETYPE));
+  if (sz == (num_node*(num_dim+1)) * sizeof(VALUETYPE) + sizeof(uint64_t)) {
+    fread((void*)b, sizeof(VALUETYPE), num_node*(num_dim+1), fp_mtx2);
   }
   else {
       printf("size of file(%s) is wrong\n", filename);
@@ -412,10 +493,10 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  //printf("pntrb[0] = %lu\n" ,pntrb[0]);
-  //printf("pntrb[1] = %lu\n" ,pntrb[1]);
-  //printf("pntrb[2] = %lu\n" ,pntrb[2]);
-  //printf("pntrb[3] = %lu\n" ,pntrb[3]);
+//  printf("pntrb[0] = %lu\n" ,pntrb[0]);
+//  printf("pntrb[1] = %lu\n" ,pntrb[1]);
+//  printf("pntrb[2] = %lu\n" ,pntrb[2]);
+//  printf("pntrb[3] = %lu\n" ,pntrb[3]);
   // ===============================================================================//
 
   // ===============================================================================//
@@ -444,10 +525,10 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  //printf("pntre[0] = %lu\n" ,pntre[0]);
-  //printf("pntre[1] = %lu\n" ,pntre[1]);
-  //printf("pntre[2] = %lu\n" ,pntre[2]);
-  //printf("pntre[3] = %lu\n" ,pntre[3]);
+//  printf("pntre[0] = %lu\n" ,pntre[0]);
+//  printf("pntre[1] = %lu\n" ,pntre[1]);
+//  printf("pntre[2] = %lu\n" ,pntre[2]);
+//  printf("pntre[3] = %lu\n" ,pntre[3]);
   // ===============================================================================//
 
   // ==============================================================================//
@@ -522,15 +603,23 @@ int main(int argc, char **argv) {
   //printf("norm[3] = %lu\n" ,norm[3]);
   // ===============================================================================//
 
-  std::vector<INDEXTYPE*> filtered_indx(num_query);
-  for (uint64_t i = 0; i < num_query; i++) {
+  std::vector<INDEXTYPE*> filtered_indx(numThreads);
+  std::vector<INDEXTYPE*> query_indx(numThreads);
+  for (uint64_t i = 0; i < numThreads; i++) {
     filtered_indx[i] = (INDEXTYPE*)aligned_alloc(CACHE_LINE_SIZE, 100 * sizeof(INDEXTYPE));
+    query_indx[i] = (INDEXTYPE*)aligned_alloc(CACHE_LINE_SIZE, 100 * sizeof(INDEXTYPE));
     memset(filtered_indx[i], 0, 100 * sizeof(INDEXTYPE));
+//    memset(query_indx[i], 0, 100 * sizeof(INDEXTYPE));
   }
 
   std::vector<std::vector<INDEXTYPE>> res(num_query);
   for (INDEXTYPE i = 0; i < num_query; i++) res[i].resize(K);
 
+  std::vector<INDEXTYPE*> flags(numThreads);
+  for (uint64_t i = 0; i < numThreads; i++) {
+    flags[i] = (INDEXTYPE*)aligned_alloc(CACHE_LINE_SIZE, total_num_node * sizeof(INDEXTYPE));
+    memset(flags[i], num_query, total_num_node * sizeof(INDEXTYPE));
+  }
 #ifdef GEM_FORGE
   gf_detail_sim_start();
 #endif
@@ -544,7 +633,7 @@ int main(int argc, char **argv) {
     INDEXTYPE* idx_base_addr = filtered_indx[i];
     uint64_t idx_granularity = sizeof(INDEXTYPE);
     VALUETYPE* val_base_addr = b;
-    uint64_t val_granularity = num_dim * sizeof(VALUETYPE);
+    uint64_t val_granularity = (num_dim + 1) * sizeof(VALUETYPE);
     __asm__ volatile (
         "stream.cfg.idx.base  $0, %[idx_base_addr] \t\n"    // Configure stream (base address of index)
         "stream.cfg.idx.gran  $0, %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
@@ -555,13 +644,40 @@ int main(int argc, char **argv) {
         :[idx_base_addr]"r"(idx_base_addr), [idx_granularity]"r"(idx_granularity),
         [val_base_addr]"r"(val_base_addr), [val_granularity]"r"(val_granularity)
     );
+
+//    val_base_addr = norm;
+//    val_granularity = sizeof(VALUETYPE);
+//    __asm__ volatile (
+//        "stream.cfg.idx.base  $1, %[idx_base_addr] \t\n"    // Configure stream (base address of index)
+//        "stream.cfg.idx.gran  $1, %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
+//        "stream.cfg.val.base  $1, %[val_base_addr] \t\n"    // Configure stream (base address of value)
+//        "stream.cfg.val.gran  $1, %[val_granularity] \t\n"  // Configure stream (access granularity of value)
+//        "stream.cfg.ready $1 \t\n"  // Configure steam ready
+//        :
+//        :[idx_base_addr]"r"(idx_base_addr), [idx_granularity]"r"(idx_granularity),
+//        [val_base_addr]"r"(val_base_addr), [val_granularity]"r"(val_granularity)
+//    );
+//
+//    idx_base_addr = query_indx[i];
+//    idx_granularity = sizeof(INDEXTYPE);
+//    val_base_addr = query;
+//    val_granularity = num_dim * sizeof(VALUETYPE);
+//    __asm__ volatile (
+//        "stream.cfg.idx.base  $2, %[idx_base_addr] \t\n"    // Configure stream (base address of index)
+//        "stream.cfg.idx.gran  $2, %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
+//        "stream.cfg.val.base  $2, %[val_base_addr] \t\n"    // Configure stream (base address of value)
+//        "stream.cfg.val.gran  $2, %[val_granularity] \t\n"  // Configure stream (access granularity of value)
+//        "stream.cfg.ready $2 \t\n"  // Configure steam ready
+//        :
+//        :[idx_base_addr]"r"(idx_base_addr), [idx_granularity]"r"(idx_granularity),
+//        [val_base_addr]"r"(val_base_addr), [val_granularity]"r"(val_granularity)
+//    );
   }
 #endif
-  std::vector<INDEXTYPE> flags(num_node,0);
 #pragma omp parallel for schedule(static)
-  for (INDEXTYPE i = 0; i < /* numThreads */ num_query; i++) {
-    std::cout << i << "th iteration" << std::endl;
-	  SearchWithOptGraph(ep_, L, K, num_node, num_dim, flags, b, norm, query + i * num_dim, indx, pntrb, pntre, res[i].data(), filtered_indx[i]);
+  for (INDEXTYPE i = 0; i < num_query; i++) {
+    int tid = omp_get_thread_num();
+	  SearchWithOptGraph(ep_, L, K, num_node, num_dim, i, flags[tid], b, norm, query + i * num_dim, indx, pntrb, pntre, res[i].data(), filtered_indx[tid], query_indx[tid]);
   }
 
 #ifdef PSP
@@ -569,6 +685,8 @@ int main(int argc, char **argv) {
   for (uint64_t i = 0; i < numThreads; i++) {
     __asm__ volatile (
         "stream.terminate $0 \t\n"
+//        "stream.terminate $1 \t\n"
+//        "stream.terminate $2 \t\n"
     );
   }
 #endif
@@ -576,6 +694,8 @@ int main(int argc, char **argv) {
 #ifdef GEM_FORGE
   gf_detail_sim_end();
 #endif
+
+  std::cout << "Simulation end" << std::endl;
 
 #ifdef CHECK
   //uint64_t err_cnt = 0;
@@ -591,10 +711,15 @@ int main(int argc, char **argv) {
   //  err_cnt += (C0[i] != C1[i]);
   //}
   //printf("Error count = %ld\n", err_cnt);
+  //
+  //free(C1);
 #endif
 
-#ifdef CHECK
-  //free(C1);
+#ifdef PROFILE
+  printf("timer[0]: %lf\n", profile_time[0]);
+  printf("timer[1]: %lf\n", profile_time[1]);
+  printf("timer[2]: %lf\n", profile_time[2]);
+  printf("total_timer: %lf\n", profile_time[0] + profile_time[1] + profile_time[2]);
 #endif
 
   for (uint64_t i = 0; i < numThreads; i++) {

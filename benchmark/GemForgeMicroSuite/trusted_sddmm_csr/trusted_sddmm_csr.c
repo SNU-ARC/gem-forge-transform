@@ -197,14 +197,13 @@ int main(int argc, char **argv) {
   //printf("sz = %d, num_dim = %d, num_node = %d\n", sz, num_dim, num_node);
 
 
-  VALUETYPE* b ;
+  //VALUETYPE* b ;
   //INDEXTYPE ldb;
-  int fp_mtx2_mmap = open(filename, O_RDONLY);
-  //VALUETYPE* b = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  num_node*num_dim * sizeof(VALUETYPE));
+  //int fp_mtx2_mmap = open(filename, O_RDONLY);
+  VALUETYPE* b = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE,  num_node*num_dim * sizeof(VALUETYPE));
   INDEXTYPE ldb = num_dim;
-  if (fp_mtx2_mmap != -1) {
-    b = (VALUETYPE*)mmap(0, sizeof(VALUETYPE) * num_node * num_dim + sizeof(uint64_t), PROT_READ, MAP_SHARED, fp_mtx2_mmap, 0);
-    b += sizeof(uint64_t);
+  if (sz == (num_node * num_dim * sizeof(VALUETYPE) + sizeof(uint64_t))) {
+    fread((void*)b, sizeof(VALUETYPE), num_node * num_dim, fp_mtx2);
   }
   else {
       printf("size of file(%s) is wrong\n", filename);
@@ -292,10 +291,20 @@ int main(int argc, char **argv) {
   strcpy(filename, dataset_path);
   strcat(filename, "_val.dat");
   printf("file name = %s\n", filename);
-  int fp_mtx5 = open(filename, O_RDONLY);
+  FILE* fp_mtx5 = fopen(filename, "rb");
 
-  if (fp_mtx5 != -1) {
-      val = (VALUETYPE*)mmap(0, sizeof(VALUETYPE) * nonzero, PROT_READ, MAP_SHARED, fp_mtx5, 0);
+  if (fp_mtx5 != NULL) {
+    fseek(fp_mtx5, 0L, SEEK_END);
+    uint64_t sz = ftell(fp_mtx5);
+    fseek(fp_mtx5, 0L, SEEK_SET);
+    if (sz == nonzero * sizeof(VALUETYPE)) {
+      fread((void*)val, sizeof(VALUETYPE), nonzero, fp_mtx5);
+    }
+    else {
+      printf("size of file(%s) is wrong\n", filename);
+      return 0;
+    }
+    fclose(fp_mtx5);
   }
   else {
     printf("Cannot find %s\n", filename);
@@ -322,8 +331,8 @@ int main(int argc, char **argv) {
   strcat(filename, "_a_mat.dat");
   printf("file name = %s\n", filename);
   FILE* fp_mtx6 = fopen(filename, "rb");
-  VALUETYPE* a;
-//  VALUETYPE* a  = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE, num_node*num_dim * sizeof(VALUETYPE));
+//  VALUETYPE* a;
+  VALUETYPE* a  = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE, num_node*num_dim * sizeof(VALUETYPE) + sizeof(INDEXTYPE));
   INDEXTYPE lda = num_dim;
 
   if (fp_mtx6 != NULL) {
@@ -331,6 +340,13 @@ int main(int argc, char **argv) {
     sz = ftell(fp_mtx6);
     fseek(fp_mtx6, 0L, SEEK_SET);
     printf("sz = %lu, sizeof(sz) = %d, num_node*num_dim * sizeof(VALUETYPE) = %lu\n", sz, sizeof(sz), num_node*num_dim * sizeof(VALUETYPE));
+    if (sz == num_node * num_dim * sizeof(VALUETYPE)) {
+      fread((void*)a, sizeof(VALUETYPE), num_node * num_dim, fp_mtx6);
+    }
+    else {
+      printf("size of file(%s) is wrong\n", filename);
+      return 0;
+    }
     fclose(fp_mtx6);	
   }
   else {
@@ -338,19 +354,12 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  int fp_mtx6_mmap = open(filename, O_RDONLY);
-  if (fp_mtx6_mmap != -1 && sz == num_node * num_dim * sizeof(VALUETYPE)) {
-    a = (VALUETYPE*)mmap(0, num_node * num_dim * sizeof(VALUETYPE) + sizeof(uint64_t), PROT_READ, MAP_SHARED, fp_mtx6_mmap, 0);
-    a += sizeof(uint64_t);
-  }
-  else {
-    printf("size of file(%s) is wrong\n", filename);
-    return 0;
-  }
-
 #ifdef GEM_FORGE
   gf_detail_sim_start();
 #endif
+
+  INDEXTYPE* a_indx = (INDEXTYPE*) aligned_alloc(CACHE_LINE_SIZE,  nonzero * sizeof(INDEXTYPE));
+  memset(a_indx, 0, nonzero * sizeof(INDEXTYPE)); 
 
 #ifdef WARM_CACHE
 //  WARM_UP_ARRAY(A, file_size);
@@ -386,6 +395,21 @@ int main(int argc, char **argv) {
         :[idx_base_addr]"r"(idx_base_addr), [idx_granularity]"r"(idx_granularity),
         [val_base_addr]"r"(val_base_addr), [val_granularity]"r"(val_granularity)
     );
+
+//    idx_base_addr = a_indx;
+//    idx_granularity = sizeof(INDEXTYPE);
+//    val_base_addr = a;
+//    val_granularity = k * sizeof(VALUETYPE);
+//    __asm__ volatile (
+//        "stream.cfg.idx.base  $1, %[idx_base_addr] \t\n"    // Configure stream (base address of index)
+//        "stream.cfg.idx.gran  $1, %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
+//        "stream.cfg.val.base  $1, %[val_base_addr] \t\n"    // Configure stream (base address of value)
+//        "stream.cfg.val.gran  $1, %[val_granularity] \t\n"  // Configure stream (access granularity of value)
+//        "stream.cfg.ready $1 \t\n"  // Configure steam ready
+//        :
+//        :[idx_base_addr]"r"(idx_base_addr), [idx_granularity]"r"(idx_granularity),
+//        [val_base_addr]"r"(val_base_addr), [val_granularity]"r"(val_granularity)
+//    );
   }
 #endif
 
@@ -398,9 +422,9 @@ int main(int argc, char **argv) {
    #pragma omp parallel for schedule(static)
 #endif
   for (uint64_t i = 0; i < numThreads; i++) {
-    __asm__ volatile (
-        "stream.terminate $0 \t\n"
-    );
+//    __asm__ volatile (
+//        "stream.terminate $0 \t\n"
+//    );
   }
 #endif
 
@@ -428,12 +452,12 @@ int main(int argc, char **argv) {
   //free(C1);
 #endif
 
-//  free(val);
-  munmap(val, sizeof(VALUETYPE) * nonzero);
+  free(val);
   free(indx);
   free(pntrb);
   free(pntre);
-//  free(b);
+  free(a);
+  free(b);
   free(c);
 
   return 0;
