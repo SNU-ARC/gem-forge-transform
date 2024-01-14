@@ -26,13 +26,16 @@
 static const uint64_t num_iter			  = 1;
 //#define CHECK
 
-#define PTTIME
+//#define PTTIME
 //#define PSP
+//#define SSP
+#define min(a, b) (((a) < (b)) ? (a) : (b))
 
 typedef float Value;
 
 // yosong
 __attribute__((noinline)) Value trusted_spmm_csr (
+   const INDEXTYPE m,
    const INDEXTYPE k,      // dimension: col of A and B
    const VALUETYPE *val,   // NNZ value  
    const INDEXTYPE *indx,  // colids -> column indices 
@@ -44,25 +47,42 @@ __attribute__((noinline)) Value trusted_spmm_csr (
    const INDEXTYPE ldc     // leading dimension of c (col size since C row-major) 
 ) {
    // spmm    
-   INDEXTYPE offset_begin = *pntrb;
-   INDEXTYPE offset_end = *pntre;
-#ifdef PSP
-   if (offset_begin < offset_end) {
-     __asm__ volatile (
-         "stream.input.offset.begin  $0, %[offset_begin] \t\n" // Input stream (offset_begin)
-         "stream.input.offset.end  $0, %[offset_end] \t\n"  // Input stream (offset_end)
-         "stream.input.ready  $0 \t\n"  // Input stream ready
-         :
-         :[offset_begin]"r"(offset_begin), [offset_end]"r"(offset_end)
-     );
-   }
+#ifdef SSP
+#ifdef PTTIME 
+#pragma omp parallel for schedule(static)
 #endif
-   for (INDEXTYPE j=offset_begin; j < offset_end; j++) {
-
-     //printf("&b: %x, indx: %lu, offset_begin: %lu, offset_end: %lu.\n", &b[indx[j] * ldb], indx[j], j, offset_end);
-     for (INDEXTYPE kk=0; kk < k; kk++)
-       c[kk] += (val[j]*b[indx[j]*ldb+kk]);
-   }
+     for (INDEXTYPE i = 0; i < m; i++) {
+       INDEXTYPE offset_begin = pntrb[i];
+       INDEXTYPE offset_end = pntre[i];
+       for (INDEXTYPE j=offset_begin; j < offset_end; j++) {
+         for (INDEXTYPE kk=0; kk < DIM; kk++)
+           c[i * ldc + kk] += (val[j]*b[indx[j]*ldb+kk]);
+       }
+     }
+#else
+#ifdef PTTIME 
+#pragma omp parallel for schedule(static)
+#endif
+     for (INDEXTYPE i = 0; i < m; i++) {
+       INDEXTYPE offset_begin = pntrb[i];
+       INDEXTYPE offset_end = pntre[i];
+#ifdef PSP
+       if (offset_begin < offset_end) {
+         __asm__ volatile (
+             "stream.input.offset.begin  $0, %[offset_begin] \t\n" // Input stream (offset_begin)
+             "stream.input.offset.end  $0, %[offset_end] \t\n"  // Input stream (offset_end)
+             "stream.input.ready  $0 \t\n"  // Input stream ready
+             :
+             :[offset_begin]"r"(offset_begin), [offset_end]"r"(offset_end)
+             );
+       }
+#endif
+       for (INDEXTYPE j=offset_begin; j < offset_end; j++) {
+         for (INDEXTYPE kk=0; kk < k; kk++)
+           c[i * ldc + kk] += (val[j]*b[indx[j]*ldb+kk]);
+       }
+     }
+#endif
 
    return 0;
 }
@@ -347,11 +367,8 @@ int main(int argc, char **argv) {
   }
 #endif
 
-#ifdef PTTIME 
-   #pragma omp parallel for schedule(static)
-#endif
-  for (uint64_t i = 0; i < 1000/*m*/; i++) {
-	  trusted_spmm_csr(k, val, indx, &pntrb[i], &pntre[i], b, ldb, &c[i*ldc], ldc);
+  for (uint64_t i = 0; i < num_iter; i++) {
+	  trusted_spmm_csr(m, k, val, indx, pntrb, pntre, b, ldb, c, ldc);
   }
 
 #ifdef PSP
@@ -368,6 +385,8 @@ int main(int argc, char **argv) {
 #ifdef GEM_FORGE
   gf_detail_sim_end();
 #endif
+
+  printf("Simluation end\n");
 
 #ifdef CHECK
   // ===============================================================================//

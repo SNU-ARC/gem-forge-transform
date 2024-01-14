@@ -27,13 +27,14 @@
 static const uint64_t num_iter			  = 1;
 //#define CHECK
 
-#define PTTIME
+//#define PTTIME
 //#define PSP
+#define min(a, b) (((a) < (b)) ? (a) : (b))
 
 typedef float Value;
 
 __attribute__((noinline)) Value trusted_sddmm_csr (
-//   const INDEXTYPE *indptr, 
+   const INDEXTYPE m, 
    const INDEXTYPE *pntrb,
    const INDEXTYPE *pntre,
    const INDEXTYPE *indices, 
@@ -43,47 +44,54 @@ __attribute__((noinline)) Value trusted_sddmm_csr (
    const INDEXTYPE dim
 ) {
    // sddmm    
-   INDEXTYPE offset_begin = *pntrb;
-   INDEXTYPE offset_end = *pntre;
+#ifdef SSP
+#ifdef PTTIME
+#pragma omp parallel for schedule(static)
+#endif
+   for (INDEXTYPE i = 0; i < m; i++) {
+     INDEXTYPE offset_begin = pntrb[i];
+     INDEXTYPE offset_end = pntre[i];
+     for (INDEXTYPE j = offset_begin; j < offset_end; ++j) {
+       VALUETYPE attrc = 0;
+       for (INDEXTYPE k = 0; k < DIM; ++k) {
+         attrc += X[i * dim + k] * Y[indices[j] * dim + k];
+       }
+       VALUETYPE d1 = 1.0 / (1.0 + exp(-attrc));
+       for (INDEXTYPE k = 0; k < DIM; ++k) {
+         O[i * dim + k] = O[i * dim + k]  + (1.0 - d1) * Y[indices[j] * dim + k];
+       }
+     }
+   }
+#else
+#ifdef PTTIME
+#pragma omp parallel for schedule(static)
+#endif
+   for (INDEXTYPE i = 0; i < m; i++) {
+     INDEXTYPE offset_begin = pntrb[i];
+     INDEXTYPE offset_end = pntre[i];
 #ifdef PSP
-   if (offset_begin < offset_end) {
-     __asm__ volatile (
-         "stream.input.offset.begin  $0, %[offset_begin] \t\n" // Input stream (offset_begin)
-         "stream.input.offset.end  $0, %[offset_end] \t\n"  // Input stream (offset_end)
-         "stream.input.ready  $0 \t\n"  // Input stream ready
-         :
-         :[offset_begin]"r"(offset_begin), [offset_end]"r"(offset_end)
-     );
+     if (offset_begin < offset_end) {
+       __asm__ volatile (
+           "stream.input.offset.begin  $0, %[offset_begin] \t\n" // Input stream (offset_begin)
+           "stream.input.offset.end  $0, %[offset_end] \t\n"  // Input stream (offset_end)
+           "stream.input.ready  $0 \t\n"  // Input stream ready
+           :
+           :[offset_begin]"r"(offset_begin), [offset_end]"r"(offset_end)
+           );
+     }
+#endif
+     for (INDEXTYPE j = offset_begin; j < offset_end; ++j) {
+       VALUETYPE attrc = 0;
+       for (INDEXTYPE k = 0; k < dim; ++k) {
+         attrc += X[i * dim + k] * Y[indices[j] * dim + k];
+       }
+       VALUETYPE d1 = 1.0 / (1.0 + exp(-attrc));
+       for (INDEXTYPE k = 0; k < dim; ++k) {
+         O[i * dim + k] = O[i * dim + k]  + (1.0 - d1) * Y[indices[j] * dim + k];
+       }
+     }
    }
 #endif
-   // X = a, Y = b, O = c, dim = k
-   // indptr[rid]      = pntrb[rid]   = offset_begin
-   // indptr[rid + 1 ] = pntrb[rid+1] = offset_end;
-   //for (IdType rid = 0; rid < N; ++rid)
-   //{
-      //const IdType row_start = indptr[rid], row_end = indptr[rid + 1];
-      //const IdType iindex = rid * dim;
-      //for (IdType j = row_start; j < row_end; ++j)
-      //for (IdType j = indptr[rid]; j < indptr[rid + 1]; ++j)
-   for (INDEXTYPE j = offset_begin; j < offset_end; ++j) {
-     //const INDEXTYPE cid = indices[j];
-     //const INDEXTYPE jindex = cid * dim;
-     //const INDEXTYPE jindex = indices[j] * dim;
-     VALUETYPE attrc = 0;
-     for (INDEXTYPE k = 0; k < dim; ++k) {
-       //attrc += X[iindex + k] * Y[jindex + k];
-       //attrc += X[rid * dim + k] * Y[jindex + k];
-       //attrc += X[k] * Y[jindex + k];
-       attrc += X[k] * Y[indices[j] * dim + k];
-     }
-     VALUETYPE d1 = 1.0 / (1.0 + exp(-attrc));
-     //VALUETYPE d1 = fast_SM<VALUETYPE>(attrc, sm_table);
-     for (INDEXTYPE k = 0; k < dim; ++k) {
-       //O[iindex+k] = O[iindex+k]  + (1.0 - d1) * Y[jindex + k];
-       O[k] = O[k]  + (1.0 - d1) * Y[indices[j] * dim + k];
-     }
-   }
-   //}		
 
    return 0;
 }
@@ -331,7 +339,7 @@ int main(int argc, char **argv) {
   }
 
   int fp_mtx6_mmap = open(filename, O_RDONLY);
-  if (fp_mtx6_mmap != -1 && sz == num_node * num_dim * sizeof(VALUETYPE) + sizeof(uint64_t)) {
+  if (fp_mtx6_mmap != -1 && sz == num_node * num_dim * sizeof(VALUETYPE)) {
     a = (VALUETYPE*)mmap(0, num_node * num_dim * sizeof(VALUETYPE) + sizeof(uint64_t), PROT_READ, MAP_SHARED, fp_mtx6_mmap, 0);
     a += sizeof(uint64_t);
   }
@@ -381,17 +389,8 @@ int main(int argc, char **argv) {
   }
 #endif
 
-
-   // indptr[rid]      = pntrb[rid]   = offset_begin
-   // indptr[rid + 1 ] = pntrb[rid+1] = offset_end;
-   //for (IdType rid = 0; rid < N; ++rid)
-  //for (uint64_t i = 0; i < m; i++) {
-#ifdef PTTIME 
-   #pragma omp parallel for schedule(static)
-#endif
-  for (uint64_t rid = 0; rid < 400 /* m */; ++rid) {
-	  //trusted_sddmm_csr(k, val, indx, &pntrb[i], &pntre[i], b, ldb, &c[i*ldc], ldc);
-	  trusted_sddmm_csr(&pntrb[rid], &pntre[rid], indx, &a[rid*lda], b, &c[rid*ldc], ldb);
+  for (uint64_t i = 0; i < num_iter; i++) {
+	  trusted_sddmm_csr(m, pntrb, pntre, indx, a, b, c, ldb);
   }
 
 #ifdef PSP
