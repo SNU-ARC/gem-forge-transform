@@ -24,11 +24,9 @@
 #define VALUETYPE float
 
 static const uint64_t num_iter			  = 1;
+#define WARM_CACHE
 //#define CHECK
 
-//#define PTTIME
-//#define PSP
-//#define SSP
 #define min(a, b) (((a) < (b)) ? (a) : (b))
 
 typedef float Value;
