@@ -25,10 +25,9 @@
 #define VALUETYPE float
 
 static const uint64_t num_iter			  = 1;
+#define WARM_CACHE
 //#define CHECK
 
-//#define PTTIME
-//#define PSP
 #define min(a, b) (((a) < (b)) ? (a) : (b))
 
 typedef float Value;
@@ -358,24 +357,6 @@ int main(int argc, char **argv) {
   gf_detail_sim_start();
 #endif
 
-  INDEXTYPE* a_indx = (INDEXTYPE*) aligned_alloc(CACHE_LINE_SIZE,  nonzero * sizeof(INDEXTYPE));
-  memset(a_indx, 0, nonzero * sizeof(INDEXTYPE)); 
-
-#ifdef WARM_CACHE
-//  WARM_UP_ARRAY(A, file_size);
-//  WARM_UP_ARRAY(B, file_size);
-//  WARM_UP_ARRAY(C, file_size);
-//  // Initialize the threads.
-//#pragma omp parallel for schedule(static) firstprivate(A)
-//  for (int tid = 0; tid < numThreads; ++tid) {
-//    volatile Value x = *A;
-//  }
-#endif
-
-#ifdef GEM_FORGE
-  gf_reset_stats();
-#endif
-
 #ifdef PSP
 #ifdef PTTIME 
    #pragma omp parallel for schedule(static)
@@ -395,22 +376,15 @@ int main(int argc, char **argv) {
         :[idx_base_addr]"r"(idx_base_addr), [idx_granularity]"r"(idx_granularity),
         [val_base_addr]"r"(val_base_addr), [val_granularity]"r"(val_granularity)
     );
-
-//    idx_base_addr = a_indx;
-//    idx_granularity = sizeof(INDEXTYPE);
-//    val_base_addr = a;
-//    val_granularity = k * sizeof(VALUETYPE);
-//    __asm__ volatile (
-//        "stream.cfg.idx.base  $1, %[idx_base_addr] \t\n"    // Configure stream (base address of index)
-//        "stream.cfg.idx.gran  $1, %[idx_granularity] \t\n"  // Configure stream (access granularity of index)
-//        "stream.cfg.val.base  $1, %[val_base_addr] \t\n"    // Configure stream (base address of value)
-//        "stream.cfg.val.gran  $1, %[val_granularity] \t\n"  // Configure stream (access granularity of value)
-//        "stream.cfg.ready $1 \t\n"  // Configure steam ready
-//        :
-//        :[idx_base_addr]"r"(idx_base_addr), [idx_granularity]"r"(idx_granularity),
-//        [val_base_addr]"r"(val_base_addr), [val_granularity]"r"(val_granularity)
-//    );
   }
+#endif
+
+#ifdef WARM_CACHE
+	  trusted_sddmm_csr(6, pntrb, pntre, indx, a, b, c, ldb);
+#endif
+
+#ifdef GEM_FORGE
+  gf_reset_stats();
 #endif
 
   for (uint64_t i = 0; i < num_iter; i++) {
@@ -422,15 +396,17 @@ int main(int argc, char **argv) {
    #pragma omp parallel for schedule(static)
 #endif
   for (uint64_t i = 0; i < numThreads; i++) {
-//    __asm__ volatile (
-//        "stream.terminate $0 \t\n"
-//    );
+    __asm__ volatile (
+        "stream.terminate $0 \t\n"
+    );
   }
 #endif
 
 #ifdef GEM_FORGE
   gf_detail_sim_end();
 #endif
+
+  printf("Simluation end\n");
 
 #ifdef CHECK
   //uint64_t err_cnt = 0;
@@ -446,9 +422,7 @@ int main(int argc, char **argv) {
   //  err_cnt += (C0[i] != C1[i]);
   //}
   //printf("Error count = %ld\n", err_cnt);
-#endif
-
-#ifdef CHECK
+  //
   //free(C1);
 #endif
 
