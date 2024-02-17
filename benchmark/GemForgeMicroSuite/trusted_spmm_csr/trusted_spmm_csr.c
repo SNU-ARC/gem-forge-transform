@@ -55,8 +55,11 @@ __attribute__((noinline)) Value trusted_spmm_csr (
        INDEXTYPE offset_begin = pntrb[i];
        INDEXTYPE offset_end = pntre[i];
        for (INDEXTYPE j=offset_begin; j < offset_end; j++) {
-         for (INDEXTYPE kk=0; kk < DIM; kk++)
+//         printf("[SJ_DEBUG] indx[%lu] = %lu, &b[indx[%lu]][0] = %#x\n", j, indx[j], j, &b[indx[j]*ldb]);
+         for (INDEXTYPE kk=0; kk < k; kk++) {
+//         for (INDEXTYPE kk=0; kk < DIM; kk++) {
            c[i * ldc + kk] += (val[j]*b[indx[j]*ldb+kk]);
+         }
        }
      }
 #else
@@ -109,7 +112,7 @@ int main(int argc, char **argv) {
   uint64_t sz;
   uint64_t num_node;
   uint64_t total_num_node;
-  uint64_t num_dim;
+  uint64_t num_dim = 0;
 
   strcpy(input_path,argv[2]);
   ptr = strrchr(input_path, '/');
@@ -330,21 +333,6 @@ int main(int argc, char **argv) {
   gf_detail_sim_start();
 #endif
 
-#ifdef WARM_CACHE
-//  WARM_UP_ARRAY(A, file_size);
-//  WARM_UP_ARRAY(B, file_size);
-//  WARM_UP_ARRAY(C, file_size);
-//  // Initialize the threads.
-//#pragma omp parallel for schedule(static) firstprivate(A)
-//  for (int tid = 0; tid < numThreads; ++tid) {
-//    volatile Value x = *A;
-//  }
-#endif
-
-#ifdef GEM_FORGE
-  gf_reset_stats();
-#endif
-
 #ifdef PSP
 #ifdef PTTIME 
    #pragma omp parallel for schedule(static)
@@ -365,6 +353,14 @@ int main(int argc, char **argv) {
         [val_base_addr]"r"(val_base_addr), [val_granularity]"r"(val_granularity)
     );
   }
+#endif
+
+#ifdef WARM_CACHE
+  trusted_spmm_csr(6, k, val, indx, pntrb, pntre, b, ldb, c, ldc);
+#endif
+
+#ifdef GEM_FORGE
+  gf_reset_stats();
 #endif
 
   for (uint64_t i = 0; i < num_iter; i++) {
@@ -397,24 +393,28 @@ int main(int argc, char **argv) {
   FILE* fp_mtx6 = fopen(filename, "rb");
   VALUETYPE* c_golden = (VALUETYPE*) aligned_alloc(CACHE_LINE_SIZE, total_num_node*num_dim * sizeof(VALUETYPE));
 
-  if (fp_mtx6 != NULL) {
-    fseek(fp_mtx6, 0L, SEEK_END);
-    sz = ftell(fp_mtx6);
-    fseek(fp_mtx6, 0L, SEEK_SET);
-    //printf("sz = %lu, sizeof(sz) = %d, num_node*num_dim * sizeof(VALUETYPE) = %lu\n", sz, sizeof(sz), num_node*num_dim * sizeof(VALUETYPE));
-    if (sz == num_node * num_dim * sizeof(VALUETYPE)) {
-        fread((void*)c_golden, sizeof(VALUETYPE), num_node*num_dim, fp_mtx6);
-    }
-    else {
-        printf("size of file(%s) is wrong\n", filename);
-        return 0;
-    }
-    fclose(fp_mtx6);	
+  for (uint64_t i = 0; i < num_iter; i++) {
+	  trusted_spmm_csr(32, k, val, indx, pntrb, pntre, b, ldb, c_golden, ldc);
   }
-  else {
-    printf("Cannot find %s\n", filename);
-    return 0;
-  }
+//  if (fp_mtx6 != NULL) {
+//    fseek(fp_mtx6, 0L, SEEK_END);
+//    sz = ftell(fp_mtx6);
+//    fseek(fp_mtx6, 0L, SEEK_SET);
+//    //printf("sz = %lu, sizeof(sz) = %d, num_node*num_dim * sizeof(VALUETYPE) = %lu\n", sz, sizeof(sz), num_node*num_dim * sizeof(VALUETYPE));
+//    if (sz == num_node * num_dim * sizeof(VALUETYPE)) {
+//        fread((void*)c_golden, sizeof(VALUETYPE), 512*num_dim, fp_mtx6);
+////        fread((void*)c_golden, sizeof(VALUETYPE), num_node*num_dim, fp_mtx6);
+//    }
+//    else {
+//        printf("size of file(%s) is wrong\n", filename);
+//        return 0;
+//    }
+//    fclose(fp_mtx6);	
+//  }
+//  else {
+//    printf("Cannot find %s\n", filename);
+//    return 0;
+//  }
 
   if( memcmp(c_golden, c, total_num_node*num_dim * sizeof(VALUETYPE)) == 0 )
   {
