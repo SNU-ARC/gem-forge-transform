@@ -1743,7 +1743,6 @@ __attribute__((noinline)) Value sgfusedMM_K608_sigmoid_b1_csr
 (
    const INDEXTYPE m,      // rows of dense A matrix 
    const INDEXTYPE k,      // cols of A or dimension. not used since K compile time   
-   const float alpha,     // const to scale, not use yet  
    const float *val,       // value of  the sparse matrix 
    const INDEXTYPE *indx,  // colids -> column indices of sparse matrix 
    const INDEXTYPE *pntrb, // starting index for rowptr of csr of sparse matrix
@@ -2440,8 +2439,8 @@ __attribute__((noinline)) Value sgfusedMM_K608_sigmoid_b1_csr
 
          BCL_vrsum_syo(attrc, Vatt0);
          // rolled loop for remaining computation
-         for (INDEXTYPE kk=608; kk < k; kk++)
-            attrc += Ai[kk] * Bj[kk];   
+//         for (INDEXTYPE kk=608; kk < k; kk++)
+//            attrc += Ai[kk] * Bj[kk];   
 #ifdef SOP_INHOUSE
          /* Calculating Sigmoid value */
          { // fast_SM 
@@ -2534,8 +2533,8 @@ __attribute__((noinline)) Value sgfusedMM_K608_sigmoid_b1_csr
          BCL_vmac(Vc74, Vd1, Vb74);
          BCL_vmac(Vc75, Vd1, Vb75);
          // rolled loop for remaining C write 
-         for (INDEXTYPE kk=608; kk < k; kk++)
-            Ci[kk] += d1 * Bj[kk];   
+//         for (INDEXTYPE kk=608; kk < k; kk++)
+//            Ci[kk] += d1 * Bj[kk];   
       }
       BCL_vstu(Ci + VLEN*0, Vc0); 
       BCL_vstu(Ci + VLEN*1, Vc1); 
@@ -2639,7 +2638,7 @@ int main(int argc, char **argv) {
   char *ptr = NULL;
   char dataset_path[256] = "";
   char dataset_name[256] = "";
-  char filename[100];
+  char filename[200];
   char input_path[256] = "";
 
   uint64_t nonzero;
@@ -2754,6 +2753,7 @@ int main(int argc, char **argv) {
       fread((void*)pntrb, sizeof(INDEXTYPE), total_num_node, fp_mtx3);
     }
     else {
+      printf("sz = %lu, total_num_node = %lu\n", sz, total_num_node);
         printf("size of file(%s) is wrong\n", filename);
         return 0;
     }
